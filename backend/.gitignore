@@ -1,0 +1,14 @@
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# Python
+backend/__pycache__/
+backend/.env
+backend/*.pyc
+
+# Database
+backend/debate_users.db
+
+# OS
+.DS_Store
