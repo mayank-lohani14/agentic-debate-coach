@@ -16,7 +16,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import PydanticOutputParser
 
-# Load environment variables (like GOOGLE_API_KEY)
+# Load environment variables
 load_dotenv()
 
 router = APIRouter()
@@ -68,16 +68,14 @@ class ArgumentAnalysisResult(BaseModel):
 # ---------------------------------------------------------
 # 2. LANGCHAIN SETUP
 # ---------------------------------------------------------
-# ---------------------------------------------------------
-# 2. LANGCHAIN SETUP
-# ---------------------------------------------------------
 parser = PydanticOutputParser(pydantic_object=ArgumentAnalysisResult)
 
 llm = ChatGoogleGenerativeAI(
     model="gemini-3.1-flash-lite", 
     temperature=0.2, 
-api_key = os.getenv("GOOGLE_API_KEY")
+google_api_key = os.getenv("GEMINI_API_KEY")
 )
+
 template = """
 You are an expert AI Debate Coach evaluating a user's argument in a {debate_format}.
 
