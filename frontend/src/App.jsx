@@ -1,4 +1,228 @@
 import React, { useState, useRef, useEffect } from 'react';
+import axios from 'axios';
+
+// --- Map of pages to active sub-agents for UI display ---
+const PAGE_AGENT_MAP = {
+  'dashboard': ['Recommendation & Coaching Agent', 'Performance Analytics Agent'],
+  'profile': ['Orchestrator Agent'],
+  'topics': ['Recommendation & Coaching Agent'],
+  'sessions': ['Recommendation & Coaching Agent', 'Performance Analytics Agent'],
+  'room': ['Argument Analysis Agent', 'Logical Fallacy Detection Agent', 'Counterargument Generation Agent'],
+  'reports': ['Performance Analytics Agent', 'Report Generation Agent']
+};
+
+// --- Floating Chatbot Component ---
+const FloatingChatbot = ({ authToken, userRole = 'Learner', activeTab = 'dashboard' }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState('');
+  const [loading, setLoading] = useState(false);
+  const chatEndRef = useRef(null);
+
+  const activeAgents = PAGE_AGENT_MAP[activeTab] || ['Orchestrator Agent'];
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, loading]);
+
+  const sendMessage = async (e) => {
+    e.preventDefault();
+    if (!input.trim()) return;
+
+    const userMessage = { sender: 'user', text: input, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) };
+    setMessages((prev) => [...prev, userMessage]);
+    setInput('');
+    setLoading(true);
+
+    try {
+      const response = await axios.post(
+        'http://127.0.0.1:8000/api/v1/chat',
+        {
+          message: userMessage.text,
+          current_page: activeTab,
+          user_role: userRole,
+          session_id: 'global_session'
+        },
+        { headers: { Authorization: `Bearer ${authToken}` } }
+      );
+
+      const aiMessage = {
+        sender: 'ai',
+        text: response.data.response,
+        active_agents: response.data.active_agents || activeAgents,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      };
+
+      setMessages((prev) => [...prev, aiMessage]);
+    } catch (error) {
+      console.error('Chatbot connection error:', error);
+      setMessages((prev) => [
+        ...prev,
+        {
+          sender: 'ai',
+          text: 'Unable to connect to the AI Coach Orchestrator. Please check your network or backend server status.',
+          active_agents: ['System Alert'],
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        }
+      ]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <>
+      {/* --- Floating Action Button --- */}
+      {!isOpen && (
+        <button
+          onClick={() => setIsOpen(true)}
+          style={{
+            position: 'fixed',
+            bottom: '24px',
+            right: '24px',
+            width: '64px',
+            height: '64px',
+            borderRadius: '50%',
+            background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)',
+            color: 'white',
+            border: 'none',
+            boxShadow: '0 10px 25px -5px rgba(79, 70, 229, 0.5)',
+            cursor: 'pointer',
+            fontSize: '26px',
+            zIndex: 9999,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            transition: 'transform 0.2s, cubic-bezier(0.4, 0, 0.2, 1)',
+          }}
+          onMouseOver={(e) => (e.currentTarget.style.transform = 'scale(1.08)')}
+          onMouseOut={(e) => (e.currentTarget.style.transform = 'scale(1)')}
+        >
+          🎙️
+        </button>
+      )}
+
+      {/* --- Floating Expanded Window --- */}
+      {isOpen && (
+        <div
+          style={{
+            position: 'fixed',
+            bottom: '24px',
+            right: '24px',
+            width: '400px',
+            height: '620px',
+            maxHeight: 'calc(100vh - 48px)',
+            background: '#ffffff',
+            borderRadius: '18px',
+            boxShadow: '0 20px 40px -15px rgba(0,0,0,0.25)',
+            border: '1px solid #e2e8f0',
+            display: 'flex',
+            flexDirection: 'column',
+            zIndex: 9999,
+            overflow: 'hidden',
+            fontFamily: 'sans-serif'
+          }}
+        >
+          {/* Header */}
+          <div style={{ background: 'linear-gradient(135deg, #4f46e5 0%, #6d28d9 100%)', padding: '16px 20px', color: 'white' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '700', letterSpacing: '-0.01em' }}>
+                  AI Debate Coach
+                </h3>
+                <span style={{ fontSize: '12px', opacity: 0.9, display: 'inline-block', marginTop: '2px' }}>
+                  Context: <strong style={{ textTransform: 'capitalize' }}>{activeTab.replace('-', ' ')}</strong>
+                </span>
+              </div>
+              <button
+                onClick={() => setIsOpen(false)}
+                style={{ background: 'rgba(255,255,255,0.15)', border: 'none', color: 'white', borderRadius: '50%', width: '30px', height: '30px', cursor: 'pointer', fontSize: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Active Agents Indicator Bar */}
+            <div style={{ marginTop: '12px', padding: '8px 10px', background: 'rgba(255,255,255,0.12)', borderRadius: '8px', fontSize: '11px', lineHeight: '1.4' }}>
+              <div style={{ opacity: 0.8, fontWeight: '600', marginBottom: '2px' }}>⚡ Active Specialized Agents:</div>
+              <div style={{ fontWeight: '500', color: '#f1f5f9' }}>
+                {activeAgents.join(' • ')}
+              </div>
+            </div>
+          </div>
+
+          {/* Message Area */}
+          <div style={{ flex: 1, overflowY: 'auto', padding: '16px', background: '#f8fafc', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {messages.length === 0 && (
+              <div style={{ textAlign: 'center', color: '#64748b', marginTop: '30px', padding: '0 20px', fontSize: '13px', lineHeight: '1.6' }}>
+                👋 Hi! I am your <strong>Agentic AI Debate Assistant</strong>.<br />
+                Currently active on your <strong>{activeTab.replace('-', ' ')}</strong> view with specialized agents ready to help.
+              </div>
+            )}
+
+            {messages.map((msg, index) => (
+              <div
+                key={index}
+                style={{
+                  alignSelf: msg.sender === 'user' ? 'flex-end' : 'flex-start',
+                  maxWidth: '85%',
+                  display: 'flex',
+                  flexDirection: 'column'
+                }}
+              >
+                <div
+                  style={{
+                    padding: '12px 14px',
+                    borderRadius: '14px',
+                    fontSize: '13.5px',
+                    lineHeight: '1.5',
+                    wordBreak: 'break-word',
+                    background: msg.sender === 'user' ? '#4f46e5' : '#ffffff',
+                    color: msg.sender === 'user' ? '#ffffff' : '#1e293b',
+                    border: msg.sender === 'ai' ? '1px solid #e2e8f0' : 'none',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+                    borderBottomRightRadius: msg.sender === 'user' ? '2px' : '14px',
+                    borderBottomLeftRadius: msg.sender === 'ai' ? '2px' : '14px',
+                  }}
+                >
+                  {msg.text}
+                </div>
+                <span style={{ fontSize: '10px', color: '#94a3b8', marginTop: '4px', alignSelf: msg.sender === 'user' ? 'flex-end' : 'flex-start' }}>
+                  {msg.timestamp}
+                </span>
+              </div>
+            ))}
+
+            {loading && (
+              <div style={{ alignSelf: 'flex-start', background: '#ffffff', padding: '10px 14px', borderRadius: '12px', border: '1px solid #e2e8f0', color: '#64748b', fontSize: '12px', fontStyle: 'italic', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span>🤖 Orchestrator coordinating agents...</span>
+              </div>
+            )}
+            <div ref={chatEndRef} />
+          </div>
+
+          {/* Input Area */}
+          <form onSubmit={sendMessage} style={{ display: 'flex', padding: '12px', background: '#ffffff', borderTop: '1px solid #e2e8f0', gap: '8px' }}>
+            <input
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder={`Ask on ${activeTab.replace('-', ' ')}...`}
+              style={{ flex: 1, padding: '10px 14px', borderRadius: '10px', border: '1px solid #cbd5e1', outline: 'none', fontSize: '13.5px' }}
+            />
+            <button
+              type="submit"
+              disabled={loading}
+              style={{ padding: '0 18px', background: '#4f46e5', color: '#ffffff', border: 'none', borderRadius: '10px', fontWeight: '600', fontSize: '13px', cursor: 'pointer', opacity: loading ? 0.6 : 1 }}
+            >
+              Send
+            </button>
+          </form>
+        </div>
+      )}
+    </>
+  );
+};
 
 // --- AuthForms Component ---
 const AuthForms = ({ setAuthToken, setUserRole }) => {
@@ -18,15 +242,13 @@ const AuthForms = ({ setAuthToken, setUserRole }) => {
     };
 
     if (isLogin) {
-      // FastAPI OAuth2 requires Form Data (URLSearchParams) and a 'username' field
       const loginData = new URLSearchParams();
-      loginData.append('username', formData.email); // FastAPI expects the key to be 'username'
+      loginData.append('username', formData.email); 
       loginData.append('password', formData.password);
       
       fetchOptions.headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
       fetchOptions.body = loginData;
     } else {
-      // Registration usually accepts standard JSON
       fetchOptions.headers = { 'Content-Type': 'application/json' };
       fetchOptions.body = JSON.stringify(formData);
     }
@@ -107,15 +329,39 @@ const Dashboard = ({ authToken, userRole, logout }) => {
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
 
+  // Profile Bio State
+  const [userBio, setUserBio] = useState('Passionate about sharpening argumentation skills, logical reasoning, and structured public speaking.');
+  const [isEditingBio, setIsEditingBio] = useState(false);
+  const [tempBio, setTempBio] = useState(userBio);
+
+  // Dynamic Topics State
+  const [availableTopics, setAvailableTopics] = useState([
+    { title: "AI Ethics and Data Privacy", difficulty: "Intermediate" },
+    { title: "Universal Basic Income", difficulty: "Advanced" },
+    { title: "Climate Change Policy", difficulty: "Intermediate" },
+    { title: "Space Exploration Funding", difficulty: "Advanced" },
+    { title: "Cryptocurrency Regulation", difficulty: "Intermediate" },
+    { title: "Automation and Job Displacement", difficulty: "Beginner" },
+    { title: "Universal Healthcare Systems", difficulty: "Advanced" }
+  ]);
+
+  // Add Topic Modal State
+  const [showAddTopicModal, setShowAddTopicModal] = useState(false);
+  const [newTopicForm, setNewTopicForm] = useState({ title: '', difficulty: 'Intermediate' });
+
+  // Sessions State (Dynamic List)
+  const [sessionsList, setSessionsList] = useState([
+    { id: '#1042', title: 'Climate Change Policy', timing: 'Starts in 2 hours', format: 'One-on-One Debate' }
+  ]);
+
   // Scheduling Modal State
   const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [scheduleData, setScheduleData] = useState({ date: '', time: '', topic: 'AI Ethics', format: 'One-on-One Debate' });
 
-  // --- NEW: History Tracking State & Logic ---
+  // History Tracking State & Logic
   const [historyData, setHistoryData] = useState([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
 
-  // Automatically fetch history when the user clicks the 'Reports' tab
   useEffect(() => {
     if (activeTab === 'reports') {
       fetchHistory();
@@ -136,11 +382,15 @@ const Dashboard = ({ authToken, userRole, logout }) => {
     setIsLoadingHistory(false);
   };
 
-  // Calculate real averages for the dashboard
   const totalDebates = historyData.length;
   const avgLogic = totalDebates ? Math.round(historyData.reduce((sum, row) => sum + row.logical_consistency, 0) / totalDebates) : 0;
   const avgSpeaking = totalDebates ? Math.round(historyData.reduce((sum, row) => sum + (row.clarity + row.persuasiveness) / 2, 0) / totalDebates) : 0;
   const avgEvidence = totalDebates ? Math.round(historyData.reduce((sum, row) => sum + row.evidence_strength, 0) / totalDebates) : 0;
+
+  // Pie chart calculation logic based on scores
+  const totalScoreSum = (avgLogic + avgSpeaking + avgEvidence) || 1;
+  const logicDeg = (avgLogic / totalScoreSum) * 360;
+  const speakingDeg = logicDeg + (avgSpeaking / totalScoreSum) * 360;
 
   const startRecording = async () => {
     try {
@@ -203,9 +453,27 @@ const Dashboard = ({ authToken, userRole, logout }) => {
 
   const handleScheduleSubmit = (e) => {
     e.preventDefault();
-    alert(`Session scheduled for ${scheduleData.date} at ${scheduleData.time} on the topic of ${scheduleData.topic}!`);
+    const newSessionId = `#${Math.floor(1000 + Math.random() * 9000)}`;
+    const newSession = {
+      id: newSessionId,
+      title: scheduleData.topic,
+      timing: `Scheduled for ${scheduleData.date} at ${scheduleData.time}`,
+      format: scheduleData.format
+    };
+
+    setSessionsList([newSession, ...sessionsList]);
     setShowScheduleModal(false);
-    setActiveTab('sessions'); // Redirect to sessions tab to show the new booking
+    setActiveTab('sessions');
+  };
+
+  const handleAddTopicSubmit = (e) => {
+    e.preventDefault();
+    if (!newTopicForm.title.trim()) return;
+
+    setAvailableTopics([newTopicForm, ...availableTopics]);
+    setNewTopicForm({ title: '', difficulty: 'Intermediate' });
+    setShowAddTopicModal(false);
+    alert("New topic successfully added to the library!");
   };
 
   const navButtonStyle = (tabName) => ({
@@ -233,6 +501,7 @@ const Dashboard = ({ authToken, userRole, logout }) => {
           <button onClick={() => setActiveTab('topics')} style={navButtonStyle('topics')}>📚 Topics</button>
           <button onClick={() => setActiveTab('sessions')} style={navButtonStyle('sessions')}>📅 Sessions</button>
           <button onClick={() => setActiveTab('room')} style={navButtonStyle('room')}>🎙️ Debate Room</button>
+          {/* Note: Chatbot navigation link removed as it is now a global floating widget */}
           <button onClick={() => setActiveTab('reports')} style={navButtonStyle('reports')}>📊 Skills & Reports</button>
         </div>
 
@@ -246,14 +515,13 @@ const Dashboard = ({ authToken, userRole, logout }) => {
       </div>
 
       {/* --- MAIN CONTENT AREA --- */}
-      <div style={{ flexGrow: 1, padding: '40px', overflowY: 'auto' }}>
+      <div style={{ flexGrow: 1, padding: '40px', overflowY: 'auto', paddingBottom: '100px' }}>
         
         {/* 1. Dashboard Overview */}
         {activeTab === 'dashboard' && (
           <div>
             <h2 style={{ marginTop: 0, marginBottom: '20px', color: '#0f172a' }}>Dashboard</h2>
 
-            {/* LEARNER BANNER */}
             {(!userRole || userRole === 'Learner') && (
               <div style={{ background: 'linear-gradient(135deg, #4f46e5 0%, #9333ea 100%)', borderRadius: '16px', padding: '30px', color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', boxShadow: '0 10px 20px rgba(79, 70, 229, 0.2)' }}>
                 <div>
@@ -271,7 +539,6 @@ const Dashboard = ({ authToken, userRole, logout }) => {
               </div>
             )}
 
-            {/* EDUCATOR BANNER */}
             {userRole === 'Educator' && (
               <div style={{ background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)', borderRadius: '16px', padding: '30px', color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', boxShadow: '0 10px 20px rgba(16, 185, 129, 0.2)' }}>
                 <div>
@@ -292,10 +559,8 @@ const Dashboard = ({ authToken, userRole, logout }) => {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px' }}>
               <div style={{ background: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)', border: '1px solid #f1f5f9' }}>
                 {userRole === 'Administrator' && <div style={{ color: '#991b1b' }}><strong>Admin Alerts:</strong> 3 new user registrations pending review.</div>}
-                
                 {userRole === 'Debate Coach' && <div style={{ color: '#3730a3' }}><strong>Coach Alerts:</strong> 5 new debate sessions need your feedback.</div>}
                 
-                {/* NEW: EDUCATOR ALERTS */}
                 {userRole === 'Educator' && (
                   <>
                     <h3 style={{ margin: '0 0 10px 0', color: '#64748b', fontSize: '14px', textTransform: 'uppercase' }}>Recent Activity</h3>
@@ -320,14 +585,55 @@ const Dashboard = ({ authToken, userRole, logout }) => {
         
         {/* 2. User Profile */}
         {activeTab === 'profile' && (
-          <div style={{ background: 'white', padding: '30px', borderRadius: '16px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)', border: '1px solid #f1f5f9' }}>
-            <h2 style={{ marginTop: 0, color: '#0f172a' }}>My Profile</h2>
-            <div style={{ display: 'flex', gap: '24px', alignItems: 'center' }}>
-              <div style={{ width: '100px', height: '100px', background: '#cbd5e1', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '40px' }}>👤</div>
-              <div>
-                <p style={{ margin: '5px 0' }}><strong>Role:</strong> {userRole}</p>
-                <p style={{ margin: '5px 0' }}><strong>Total Debates:</strong> 12</p>
-                <button style={{ padding: '8px 16px', background: '#e0e7ff', color: '#4f46e5', border: 'none', borderRadius: '6px', fontWeight: 'bold', marginTop: '10px', cursor: 'pointer' }}>Edit Bio</button>
+          <div style={{ background: 'white', padding: '40px', borderRadius: '16px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)', border: '1px solid #f1f5f9', maxWidth: '800px' }}>
+            <h2 style={{ marginTop: 0, color: '#0f172a', marginBottom: '30px', fontSize: '24px', borderBottom: '2px solid #f1f5f9', paddingBottom: '15px' }}>My Profile</h2>
+            
+            <div style={{ display: 'flex', gap: '30px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+              <div style={{ width: '110px', height: '110px', background: 'linear-gradient(135deg, #4f46e5 0%, #9333ea 100%)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '48px', color: 'white', boxShadow: '0 10px 15px -3px rgba(79, 70, 229, 0.3)' }}>
+                👤
+              </div>
+              
+              <div style={{ flex: 1, minWidth: '280px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                  <h3 style={{ margin: 0, color: '#0f172a', fontSize: '20px' }}>Workspace User</h3>
+                  <span style={{ background: '#e0e7ff', color: '#4f46e5', padding: '4px 12px', borderRadius: '999px', fontSize: '13px', fontWeight: 'bold' }}>{userRole || 'Learner'}</span>
+                </div>
+                
+                <p style={{ color: '#64748b', fontSize: '14px', margin: '0 0 20px 0' }}>Role-based access active • Integrated with AI Debate Coach</p>
+                
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '15px', marginBottom: '25px', background: '#f8fafc', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                  <div>
+                    <span style={{ fontSize: '12px', color: '#64748b', textTransform: 'uppercase', fontWeight: 'bold', display: 'block', marginBottom: '4px' }}>Total Debates</span>
+                    <strong style={{ fontSize: '18px', color: '#1e293b' }}>{totalDebates > 0 ? totalDebates : 12} Sessions</strong>
+                  </div>
+                  <div>
+                    <span style={{ fontSize: '12px', color: '#64748b', textTransform: 'uppercase', fontWeight: 'bold', display: 'block', marginBottom: '4px' }}>Account Status</span>
+                    <strong style={{ fontSize: '18px', color: '#10b981' }}>Active & Verified</strong>
+                  </div>
+                </div>
+
+                <div style={{ marginBottom: '20px' }}>
+                  <label style={{ display: 'block', fontSize: '14px', fontWeight: 'bold', color: '#334155', marginBottom: '8px' }}>Bio / Objective</label>
+                  {isEditingBio ? (
+                    <div>
+                      <textarea 
+                        value={tempBio} 
+                        onChange={(e) => setTempBio(e.target.value)}
+                        style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #cbd5e1', minHeight: '80px', fontFamily: 'inherit', outline: 'none', marginBottom: '10px' }}
+                      />
+                      <div style={{ display: 'flex', gap: '10px' }}>
+                        <button onClick={() => { setUserBio(tempBio); setIsEditingBio(false); }} style={{ padding: '8px 16px', background: '#4f46e5', color: 'white', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>Save</button>
+                        <button onClick={() => setIsEditingBio(false)} style={{ padding: '8px 16px', background: '#f1f5f9', color: '#64748b', border: 'none', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer' }}>Cancel</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', background: '#f8fafc', padding: '15px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                      <p style={{ margin: 0, color: '#475569', fontSize: '15px', lineHeight: '1.5', fontStyle: 'italic' }}>"{userBio}"</p>
+                      <button onClick={() => setIsEditingBio(true)} style={{ padding: '6px 12px', background: 'white', color: '#4f46e5', border: '1px solid #c7d2fe', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', fontSize: '13px', whiteSpace: 'nowrap', marginLeft: '15px' }}>Edit Bio</button>
+                    </div>
+                  )}
+                </div>
+
               </div>
             </div>
           </div>
@@ -336,57 +642,61 @@ const Dashboard = ({ authToken, userRole, logout }) => {
         {/* 3. Topic Management */}
         {activeTab === 'topics' && (
           <div style={{ background: 'white', padding: '30px', borderRadius: '16px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)', border: '1px solid #f1f5f9' }}>
-            <h2 style={{ marginTop: 0, color: '#0f172a' }}>Topic Library</h2>
-            {isManager ? (
-              <div style={{ border: '2px dashed #cbd5e1', padding: '30px', borderRadius: '12px', textAlign: 'center', background: '#f8fafc' }}>
-                <h4 style={{ margin: '0 0 10px 0', fontSize: '18px' }}>➕ Create New Topic</h4>
+            <h2 style={{ marginTop: 0, color: '#0f172a', marginBottom: '20px' }}>Topic Library</h2>
+            
+            {isManager && (
+              <div style={{ border: '2px dashed #cbd5e1', padding: '30px', borderRadius: '12px', textAlign: 'center', background: '#f8fafc', marginBottom: '30px' }}>
+                <h4 style={{ margin: '0 0 10px 0', fontSize: '18px', color: '#0f172a' }}>➕ Create New Topic</h4>
                 <p style={{ color: '#64748b', marginBottom: '20px' }}>Add new subjects to the database for learners to debate.</p>
-                <button style={{ padding: '12px 24px', background: '#10b981', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}>Add Topic</button>
-              </div>
-            ) : (
-              <div>
-                <ul style={{ listStyle: 'none', padding: 0, display: 'grid', gap: '15px' }}>
-                  <li style={{ padding: '20px', border: '1px solid #e2e8f0', borderRadius: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div>
-                      <strong style={{ fontSize: '16px' }}>AI Ethics and Data Privacy</strong>
-                      <div style={{ color: '#64748b', fontSize: '14px', marginTop: '4px' }}>Difficulty: Intermediate</div>
-                    </div>
-                    <button style={{ padding: '8px 16px', background: '#f1f5f9', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '500' }}>View Brief</button>
-                  </li>
-                  <li style={{ padding: '20px', border: '1px solid #e2e8f0', borderRadius: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div>
-                      <strong style={{ fontSize: '16px' }}>Universal Basic Income</strong>
-                      <div style={{ color: '#64748b', fontSize: '14px', marginTop: '4px' }}>Difficulty: Advanced</div>
-                    </div>
-                    <button style={{ padding: '8px 16px', background: '#f1f5f9', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '500' }}>View Brief</button>
-                  </li>
-                </ul>
+                <button 
+                  onClick={() => setShowAddTopicModal(true)} 
+                  style={{ padding: '12px 24px', background: '#10b981', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}
+                >
+                  Add Topic
+                </button>
               </div>
             )}
+
+            <div>
+              <h3 style={{ fontSize: '16px', color: '#334155', marginBottom: '15px' }}>Available Topics ({availableTopics.length})</h3>
+              <ul style={{ listStyle: 'none', padding: 0, display: 'grid', gap: '15px' }}>
+                {availableTopics.map((topic, idx) => (
+                  <li key={idx} style={{ padding: '20px', border: '1px solid #e2e8f0', borderRadius: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#ffffff', boxShadow: '0 1px 3px rgba(0,0,0,0.02)' }}>
+                    <div>
+                      <strong style={{ fontSize: '16px', color: '#0f172a' }}>{topic.title}</strong>
+                      <div style={{ color: '#64748b', fontSize: '14px', marginTop: '4px' }}>Difficulty: {topic.difficulty}</div>
+                    </div>
+                    <button style={{ padding: '8px 16px', background: '#f1f5f9', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '500', color: '#334155' }}>View Brief</button>
+                  </li>
+                ))}
+              </ul>
+            </div>
           </div>
         )}
 
         {/* 4. Debate Sessions */}
         {activeTab === 'sessions' && (
           <div style={{ background: 'white', padding: '30px', borderRadius: '16px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)', border: '1px solid #f1f5f9' }}>
-            <h2 style={{ marginTop: 0, color: '#0f172a' }}>Debate Sessions</h2>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <h2 style={{ marginTop: 0, marginBottom: 0, color: '#0f172a' }}>Debate Sessions</h2>
+              <button onClick={() => setShowScheduleModal(true)} style={{ padding: '8px 16px', background: '#10b981', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>+ New Session</button>
+            </div>
+            
             {isManager ? (
               <div>
                 <p style={{ color: '#64748b' }}>Monitor live rooms and assign topics to specific learners.</p>
-                <button style={{ padding: '10px 20px', background: '#4f46e5', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>Create Session</button>
               </div>
-            ) : (
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                  <h4 style={{ margin: 0 }}>My Upcoming Sessions</h4>
-                  <button onClick={() => setShowScheduleModal(true)} style={{ padding: '8px 16px', background: '#10b981', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>+ New Session</button>
+            ) : null}
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', marginTop: '20px' }}>
+              <h4 style={{ margin: 0, color: '#334155' }}>My Upcoming Sessions</h4>
+              {sessionsList.map((session, index) => (
+                <div key={index} style={{ padding: '20px', background: '#f8fafc', borderLeft: '4px solid #4f46e5', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+                  <strong style={{ display: 'block', fontSize: '16px', marginBottom: '5px', color: '#0f172a' }}>{session.title}</strong>
+                  <span style={{ color: '#64748b', fontSize: '14px' }}>Session ID: {session.id} • {session.timing} ({session.format})</span>
                 </div>
-                <div style={{ padding: '20px', background: '#f8fafc', borderLeft: '4px solid #4f46e5', borderRadius: '8px' }}>
-                  <strong style={{ display: 'block', fontSize: '16px', marginBottom: '5px' }}>Climate Change Policy</strong>
-                  <span style={{ color: '#64748b', fontSize: '14px' }}>Session ID: #1042 • Starts in 2 hours</span>
-                </div>
-              </div>
-            )}
+              ))}
+            </div>
           </div>
         )}
         
@@ -407,10 +717,8 @@ const Dashboard = ({ authToken, userRole, logout }) => {
                   </select>
                 </div>
                 
-                {/* Text Argument */}
                 <textarea value={argumentText} onChange={(e) => setArgumentText(e.target.value)} placeholder="Type your argument here..." style={{ width: '100%', height: '140px', padding: '15px', borderRadius: '8px', border: '1px solid #cbd5e1', marginBottom: '15px', resize: 'vertical', fontFamily: 'inherit', outline: 'none' }} />
                 
-                {/* Audio Recording Controls */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: '15px', padding: '20px', background: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0', marginBottom: '20px' }}>
                   <button 
                     onClick={isRecording ? stopRecording : startRecording} 
@@ -441,15 +749,12 @@ const Dashboard = ({ authToken, userRole, logout }) => {
                   {isAnalyzing ? "Analyzing Argument..." : "Get AI Feedback ✨"}
                 </button>
 
-                {/* ✨ THIS IS THE ONLY PART THAT WAS CHANGED - YOUR NEW RICH UI FOR JSON */}
                 {analysisResult && analysisResult.scores ? (
                   <div style={{ marginTop: '30px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
                     
-                    {/* 1. Core Analysis */}
                     <div style={{ background: 'white', padding: '20px', borderRadius: '8px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
                       <h3 style={{ marginTop: 0, color: '#1e293b', fontSize: '18px' }}>Argument Breakdown</h3>
                       
-                      {/* ✨ NEW: DISPLAY THE TRANSCRIPT */}
                       {analysisResult.user_transcript && (
                         <div style={{ marginBottom: '15px', padding: '15px', background: '#f8fafc', borderRadius: '8px', borderLeft: '4px solid #10b981' }}>
                           <strong style={{ color: '#334155', display: 'block', marginBottom: '5px' }}>🗣️ What the AI Heard:</strong>
@@ -468,7 +773,6 @@ const Dashboard = ({ authToken, userRole, logout }) => {
                       </div>
                     </div>
 
-                    {/* 2. Evaluation Scores */}
                     <div style={{ background: 'white', padding: '20px', borderRadius: '8px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
                       <h3 style={{ marginTop: 0, color: '#1e293b', fontSize: '18px', marginBottom: '20px' }}>Evaluation Scores</h3>
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px' }}>
@@ -486,7 +790,6 @@ const Dashboard = ({ authToken, userRole, logout }) => {
                       </div>
                     </div>
 
-                    {/* 3. Logical Fallacies (Only appears if a fallacy is detected) */}
                     {analysisResult.fallacies_detected?.length > 0 && (
                       <div style={{ background: '#fef2f2', padding: '20px', borderRadius: '8px', border: '1px solid #fecaca' }}>
                         <h3 style={{ marginTop: 0, color: '#b91c1c', fontSize: '18px', display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -505,7 +808,6 @@ const Dashboard = ({ authToken, userRole, logout }) => {
                       </div>
                     )}
 
-                    {/* 4. AI Rebuttal */}
                     <div style={{ background: '#eff6ff', padding: '20px', borderRadius: '8px', borderLeft: '4px solid #3b82f6', borderTop: '1px solid #bfdbfe', borderRight: '1px solid #bfdbfe', borderBottom: '1px solid #bfdbfe' }}>
                       <h3 style={{ marginTop: 0, color: '#1e3a8a', fontSize: '18px', marginBottom: '10px' }}>AI Coach Rebuttal</h3>
                       <p style={{ margin: 0, color: '#1e40af', lineHeight: '1.6' }}>{analysisResult.ai_rebuttal}</p>
@@ -522,7 +824,7 @@ const Dashboard = ({ authToken, userRole, logout }) => {
           </div>
         )}
 
-        {/* 6. REPORTS & SKILLS */}
+        {/* 7. REPORTS & SKILLS (With Pie Chart Integration) */}
         {activeTab === 'reports' && (
           <div style={{ background: 'white', padding: '30px', borderRadius: '16px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)', border: '1px solid #f1f5f9' }}>
             <h2 style={{ marginTop: 0, color: '#0f172a' }}>Skill Tracking & Reports</h2>
@@ -540,25 +842,61 @@ const Dashboard = ({ authToken, userRole, logout }) => {
                   </div>
                 ) : (
                   <div>
-                    <p style={{ color: '#64748b', marginBottom: '20px' }}>Averages based on your last <strong>{totalDebates}</strong> debate turn(s).</p>
+                    <p style={{ color: '#64748b', marginBottom: '25px' }}>Averages based on your last <strong>{totalDebates}</strong> debate turn(s).</p>
                     
-                    {/* Real Averages Grid */}
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '20px', marginTop: '20px' }}>
-                      <div style={{ padding: '20px', background: '#f8fafc', borderRadius: '12px', textAlign: 'center', border: '1px solid #e2e8f0' }}>
-                        <div style={{ fontSize: '32px', fontWeight: 'bold', color: '#4f46e5' }}>{avgLogic}%</div>
-                        <div style={{ color: '#64748b', marginTop: '5px' }}>Average Logic</div>
+                    {/* --- PIE CHART VISUALIZATION SECTION --- */}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '40px', background: '#f8fafc', padding: '30px', borderRadius: '16px', border: '1px solid #e2e8f0', marginBottom: '40px', flexWrap: 'wrap' }}>
+                      
+                      {/* Conic Gradient Pie Chart Element */}
+                      <div style={{ 
+                        width: '180px', 
+                        height: '180px', 
+                        borderRadius: '50%', 
+                        background: `conic-gradient(
+                          #4f46e5 0deg ${logicDeg}deg, 
+                          #10b981 ${logicDeg}deg ${speakingDeg}deg, 
+                          #f59e0b ${speakingDeg}deg 360deg
+                        )`,
+                        boxShadow: '0 4px 10px rgba(0,0,0,0.1)',
+                        position: 'relative'
+                      }}>
+                        {/* Inner Hole for Donut/Pie look */}
+                        <div style={{
+                          position: 'absolute',
+                          top: '35px',
+                          left: '35px',
+                          width: '110px',
+                          height: '110px',
+                          background: 'white',
+                          borderRadius: '50%',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.05)'
+                        }}>
+                          <span style={{ fontSize: '12px', color: '#64748b', fontWeight: 'bold' }}>OVERALL</span>
+                          <span style={{ fontSize: '18px', color: '#0f172a', fontWeight: 'bold' }}>{Math.round((avgLogic + avgSpeaking + avgEvidence) / 3)}%</span>
+                        </div>
                       </div>
-                      <div style={{ padding: '20px', background: '#f8fafc', borderRadius: '12px', textAlign: 'center', border: '1px solid #e2e8f0' }}>
-                        <div style={{ fontSize: '32px', fontWeight: 'bold', color: '#10b981' }}>{avgSpeaking}%</div>
-                        <div style={{ color: '#64748b', marginTop: '5px' }}>Clarity & Persuasion</div>
-                      </div>
-                      <div style={{ padding: '20px', background: '#f8fafc', borderRadius: '12px', textAlign: 'center', border: '1px solid #e2e8f0' }}>
-                        <div style={{ fontSize: '32px', fontWeight: 'bold', color: '#f59e0b' }}>{avgEvidence}%</div>
-                        <div style={{ color: '#64748b', marginTop: '5px' }}>Evidence Strength</div>
+
+                      {/* Legend / Metrics Breakdown */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', minWidth: '220px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <span style={{ width: '16px', height: '16px', background: '#4f46e5', borderRadius: '4px', display: 'inline-block' }}></span>
+                          <span style={{ color: '#334155', fontWeight: '500' }}>Average Logic: <strong>{avgLogic}%</strong></span>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <span style={{ width: '16px', height: '16px', background: '#10b981', borderRadius: '4px', display: 'inline-block' }}></span>
+                          <span style={{ color: '#334155', fontWeight: '500' }}>Clarity & Persuasion: <strong>{avgSpeaking}%</strong></span>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <span style={{ width: '16px', height: '16px', background: '#f59e0b', borderRadius: '4px', display: 'inline-block' }}></span>
+                          <span style={{ color: '#334155', fontWeight: '500' }}>Evidence Strength: <strong>{avgEvidence}%</strong></span>
+                        </div>
                       </div>
                     </div>
                     
-                    {/* Recent Sessions Table */}
                     <h3 style={{ marginTop: '40px', color: '#1e293b', fontSize: '18px' }}>Recent Sessions History</h3>
                     <div style={{ overflowX: 'auto', marginTop: '15px', border: '1px solid #e2e8f0', borderRadius: '8px' }}>
                       <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px' }}>
@@ -592,6 +930,47 @@ const Dashboard = ({ authToken, userRole, logout }) => {
         )}
       </div>
 
+      {/* --- ADD TOPIC MODAL OVERLAY --- */}
+      {showAddTopicModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(15, 23, 42, 0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, backdropFilter: 'blur(4px)' }}>
+          <div style={{ background: 'white', padding: '30px', borderRadius: '16px', width: '100%', maxWidth: '450px', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)' }}>
+            <h2 style={{ marginTop: 0, marginBottom: '20px', color: '#0f172a' }}>Add New Debate Topic</h2>
+            
+            <form onSubmit={handleAddTopicSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+              <div>
+                <label style={{ display: 'block', marginBottom: '5px', fontSize: '14px', fontWeight: 'bold', color: '#334155' }}>Topic Title</label>
+                <input 
+                  type="text" 
+                  required 
+                  placeholder="e.g., Quantum Computing Ethics"
+                  value={newTopicForm.title} 
+                  onChange={(e) => setNewTopicForm({...newTopicForm, title: e.target.value})} 
+                  style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #cbd5e1', outline: 'none' }} 
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', marginBottom: '5px', fontSize: '14px', fontWeight: 'bold', color: '#334155' }}>Difficulty Level</label>
+                <select 
+                  value={newTopicForm.difficulty} 
+                  onChange={(e) => setNewTopicForm({...newTopicForm, difficulty: e.target.value})} 
+                  style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #cbd5e1', outline: 'none' }}
+                >
+                  <option value="Beginner">Beginner</option>
+                  <option value="Intermediate">Intermediate</option>
+                  <option value="Advanced">Advanced</option>
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px', marginTop: '15px' }}>
+                <button type="button" onClick={() => setShowAddTopicModal(false)} style={{ flex: 1, padding: '12px', background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}>Cancel</button>
+                <button type="submit" style={{ flex: 1, padding: '12px', background: '#10b981', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}>Save Topic</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* --- SCHEDULING MODAL OVERLAY --- */}
       {showScheduleModal && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(15, 23, 42, 0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, backdropFilter: 'blur(4px)' }}>
@@ -602,10 +981,9 @@ const Dashboard = ({ authToken, userRole, logout }) => {
               <div>
                 <label style={{ display: 'block', marginBottom: '5px', fontSize: '14px', fontWeight: 'bold', color: '#334155' }}>Debate Topic</label>
                 <select required value={scheduleData.topic} onChange={(e) => setScheduleData({...scheduleData, topic: e.target.value})} style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #cbd5e1' }}>
-                  <option value="AI Ethics">AI Ethics</option>
-                  <option value="Universal Basic Income">Universal Basic Income</option>
-                  <option value="Climate Change Policy">Climate Change Policy</option>
-                  <option value="Space Exploration Funding">Space Exploration Funding</option>
+                  {availableTopics.map((t, idx) => (
+                    <option key={idx} value={t.title}>{t.title}</option>
+                  ))}
                 </select>
               </div>
 
@@ -637,6 +1015,10 @@ const Dashboard = ({ authToken, userRole, logout }) => {
           </div>
         </div>
       )}
+
+      {/* --- FLOATING CHATBOT WIDGET --- */}
+      <FloatingChatbot authToken={authToken} userRole={userRole} activeTab={activeTab} />
+      
     </div>
   );
 };
