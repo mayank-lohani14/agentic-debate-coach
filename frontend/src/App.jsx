@@ -1,5 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import axios from 'axios';
+import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer, Tooltip } from 'recharts';
+import jsPDF from 'jspdf';
 
 // --- Map of pages to active sub-agents for UI display ---
 const PAGE_AGENT_MAP = {
@@ -8,7 +10,8 @@ const PAGE_AGENT_MAP = {
   'topics': ['Recommendation & Coaching Agent'],
   'sessions': ['Recommendation & Coaching Agent', 'Performance Analytics Agent'],
   'room': ['Argument Analysis Agent', 'Logical Fallacy Detection Agent', 'Counterargument Generation Agent'],
-  'reports': ['Performance Analytics Agent', 'Report Generation Agent']
+  'reports': ['Performance Analytics Agent', 'Report Generation Agent'],
+  'admin': ['Report Generation Agent', 'Performance Analytics Agent']
 };
 
 // --- Floating Chatbot Component ---
@@ -293,11 +296,7 @@ const AuthForms = ({ setAuthToken, setUserRole }) => {
               <option value="Debate Coach">Debate Coach</option>
               <option value="Administrator">Administrator</option>
             </select>
-            <select name="experienceLevel" value={formData.experienceLevel} onChange={handleChange} style={{ padding: '12px', borderRadius: '8px', border: '1px solid #cbd5e1', outline: 'none' }}>
-              <option value="Beginner">Beginner</option>
-              <option value="Intermediate">Intermediate</option>
-              <option value="Advanced">Advanced</option>
-            </select>
+            {/* The experience level dropdown has been hidden per your previous instruction */}
           </>
         )}
         
@@ -321,6 +320,7 @@ const Dashboard = ({ authToken, userRole, logout }) => {
   const [debateFormat, setDebateFormat] = useState('One-on-One Debate');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState(null);
+  const [streamingText, setStreamingText] = useState(''); 
 
   // Audio Recording State
   const [isRecording, setIsRecording] = useState(false);
@@ -362,11 +362,34 @@ const Dashboard = ({ authToken, userRole, logout }) => {
   const [historyData, setHistoryData] = useState([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
 
+  // Manager Dashboard State & Logic
+  const [studentHistories, setStudentHistories] = useState([]);
+  const [isLoadingStudents, setIsLoadingStudents] = useState(false);
+
+  // Admin Dashboard State & Logic
+  const [adminData, setAdminData] = useState({ users: [], stats: { total_users: 0, total_debates: 0 } });
+  const [isLoadingAdmin, setIsLoadingAdmin] = useState(false);
+
+  // NEW: Feedback Modal State
+  const [feedbackModal, setFeedbackModal] = useState({ isOpen: false, turnId: null, text: '' });
+
   useEffect(() => {
     if (activeTab === 'reports') {
       fetchHistory();
     }
   }, [activeTab]);
+
+  useEffect(() => {
+    if (activeTab === 'sessions' && (userRole === 'Educator' || userRole === 'Debate Coach')) {
+      fetchStudentHistories();
+    }
+  }, [activeTab, userRole]);
+
+  useEffect(() => {
+    if (activeTab === 'admin' && userRole === 'Administrator') {
+      fetchAdminData();
+    }
+  }, [activeTab, userRole]);
 
   const fetchHistory = async () => {
     setIsLoadingHistory(true);
@@ -382,15 +405,120 @@ const Dashboard = ({ authToken, userRole, logout }) => {
     setIsLoadingHistory(false);
   };
 
+  const fetchStudentHistories = async () => {
+    setIsLoadingStudents(true);
+    try {
+      const response = await fetch('http://127.0.0.1:8000/api/v1/manager/student-histories', {
+        headers: { 'Authorization': `Bearer ${authToken}` }
+      });
+      const data = await response.json();
+      if (data.data) setStudentHistories(data.data);
+    } catch (error) {
+      console.error("Failed to fetch student histories");
+    }
+    setIsLoadingStudents(false);
+  };
+
+  const fetchAdminData = async () => {
+    setIsLoadingAdmin(true);
+    try {
+      const response = await fetch('http://127.0.0.1:8000/api/v1/admin/dashboard-stats', {
+        headers: { 'Authorization': `Bearer ${authToken}` }
+      });
+      const data = await response.json();
+      if (data.status === 'success') {
+        setAdminData({ users: data.users, stats: data.stats });
+      }
+    } catch (error) {
+      console.error("Failed to fetch admin data");
+    }
+    setIsLoadingAdmin(false);
+  };
+
+  // Submit Feedback Function
+  const handleFeedbackSubmit = async (e) => {
+    e.preventDefault();
+    try {
+      const response = await fetch('http://127.0.0.1:8000/api/v1/manager/feedback', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}` 
+        },
+        body: JSON.stringify({ turn_id: feedbackModal.turnId, feedback: feedbackModal.text })
+      });
+      
+      if (response.ok) {
+        alert("Feedback successfully submitted!");
+        setFeedbackModal({ isOpen: false, turnId: null, text: '' });
+        fetchStudentHistories(); // Refresh the list
+      } else {
+        alert("Error submitting feedback.");
+      }
+    } catch (err) {
+      alert("Failed to connect to the backend.");
+    }
+  };
+
+  // ----------------------------------------------------
+  // UPDATED: Generation to PDF format using jsPDF
+  // ----------------------------------------------------
+  const downloadReport = (session) => {
+    const doc = new jsPDF();
+    const formattedDate = new Date(session.timestamp).toLocaleDateString();
+
+    // Add Title
+    doc.setFontSize(22);
+    doc.setTextColor(15, 23, 42); // slate-900
+    doc.text('Debate Session Report', 20, 25);
+
+    // Add Meta Data
+    doc.setFontSize(12);
+    doc.setTextColor(100, 116, 139); // slate-500
+    doc.text(`Date: ${formattedDate}`, 20, 35);
+    doc.text(`Format: ${session.debate_format}`, 20, 42);
+
+    // Divider Line
+    doc.setDrawColor(226, 232, 240);
+    doc.line(20, 48, 190, 48);
+
+    // Add Scores Section
+    doc.setFontSize(16);
+    doc.setTextColor(15, 23, 42);
+    doc.text('AI Evaluation Scores', 20, 62);
+
+    doc.setFontSize(12);
+    doc.setTextColor(51, 65, 85); // slate-700
+    doc.text(`• Logical Consistency: ${session.logical_consistency}/100`, 25, 72);
+    doc.text(`• Clarity: ${session.clarity}/100`, 25, 80);
+    doc.text(`• Persuasiveness: ${session.persuasiveness}/100`, 25, 88);
+
+    // Add Feedback Section
+    doc.setFontSize(16);
+    doc.setTextColor(15, 23, 42);
+    doc.text('Coach Remarks', 20, 108);
+
+    doc.setFontSize(12);
+    doc.setTextColor(4, 120, 87); // emerald-700 (green text)
+    const feedbackText = session.coach_feedback ? `"${session.coach_feedback}"` : 'Pending review';
+    
+    // Automatically wrap text so it doesn't run off the PDF page
+    const splitFeedback = doc.splitTextToSize(feedbackText, 160);
+    doc.text(splitFeedback, 20, 118);
+
+    // Add Footer
+    doc.setFontSize(10);
+    doc.setTextColor(148, 163, 184); // slate-400
+    doc.text('Generated securely by Agentic AI Debate Coach', 20, 280);
+
+    // Save and Trigger Download
+    doc.save(`Debate_Report_${formattedDate.replace(/\//g, '-')}.pdf`);
+  };
+
   const totalDebates = historyData.length;
   const avgLogic = totalDebates ? Math.round(historyData.reduce((sum, row) => sum + row.logical_consistency, 0) / totalDebates) : 0;
   const avgSpeaking = totalDebates ? Math.round(historyData.reduce((sum, row) => sum + (row.clarity + row.persuasiveness) / 2, 0) / totalDebates) : 0;
   const avgEvidence = totalDebates ? Math.round(historyData.reduce((sum, row) => sum + row.evidence_strength, 0) / totalDebates) : 0;
-
-  // Pie chart calculation logic based on scores
-  const totalScoreSum = (avgLogic + avgSpeaking + avgEvidence) || 1;
-  const logicDeg = (avgLogic / totalScoreSum) * 360;
-  const speakingDeg = logicDeg + (avgSpeaking / totalScoreSum) * 360;
 
   const startRecording = async () => {
     try {
@@ -426,13 +554,16 @@ const Dashboard = ({ authToken, userRole, logout }) => {
 
   const handleAnalyze = async () => {
     if (!argumentText.trim() && !audioBlob) return alert("Please type an argument or record your voice.");
+    
     setIsAnalyzing(true);
+    setAnalysisResult(null); 
+    setStreamingText('');    
     
     try {
       const formData = new FormData();
       formData.append("text_argument", argumentText);
       formData.append("debate_format", debateFormat);
-      formData.append("session_id", "s1");
+      formData.append("session_id", "s1"); 
       formData.append("duration", "30.0");
       if (audioBlob) formData.append("audio_file", audioBlob, "user_argument.webm");
 
@@ -442,12 +573,54 @@ const Dashboard = ({ authToken, userRole, logout }) => {
         body: formData
       });
       
-      const data = await response.json();
-      console.log("RECEIVED FROM BACKEND:", data);
-      setAnalysisResult(data);
+      if (!response.body) throw new Error("ReadableStream not supported in this browser.");
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder("utf-8");
+      let done = false;
+
+      while (!done) {
+        const { value, done: readerDone } = await reader.read();
+        done = readerDone;
+        if (value) {
+          const chunk = decoder.decode(value, { stream: true });
+          const lines = chunk.split('\n\n');
+          
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const dataStr = line.substring(6);
+              
+              if (dataStr === '[DONE]') {
+                done = true;
+                break;
+              }
+              
+              try {
+                const parsed = JSON.parse(dataStr);
+                
+                if (parsed.type === 'status') {
+                  setStreamingText(prev => prev + `\n[Status: ${parsed.message}]\n`);
+                } else if (parsed.type === 'transcript') {
+                  setStreamingText(prev => prev + `\n🗣️ Transcript: ${parsed.text}\n\n🤖 AI is formulating a rebuttal:\n`);
+                } else if (parsed.type === 'chunk') {
+                  setStreamingText(prev => prev + parsed.content);
+                } else if (parsed.type === 'final') {
+                  setAnalysisResult(parsed.data);
+                } else if (parsed.type === 'error') {
+                  setStreamingText(prev => prev + `\n❌ Error: ${parsed.message}\n`);
+                }
+              } catch (e) {
+                console.error("Error parsing stream chunk:", e, dataStr);
+              }
+            }
+          }
+        }
+      }
     } catch (error) { 
       alert("Error connecting to the analysis server."); 
+      console.error(error);
     }
+    
     setIsAnalyzing(false);
   };
 
@@ -501,8 +674,12 @@ const Dashboard = ({ authToken, userRole, logout }) => {
           <button onClick={() => setActiveTab('topics')} style={navButtonStyle('topics')}>📚 Topics</button>
           <button onClick={() => setActiveTab('sessions')} style={navButtonStyle('sessions')}>📅 Sessions</button>
           <button onClick={() => setActiveTab('room')} style={navButtonStyle('room')}>🎙️ Debate Room</button>
-          {/* Note: Chatbot navigation link removed as it is now a global floating widget */}
           <button onClick={() => setActiveTab('reports')} style={navButtonStyle('reports')}>📊 Skills & Reports</button>
+          
+          {/* Only show this tab to Administrators */}
+          {userRole === 'Administrator' && (
+            <button onClick={() => setActiveTab('admin')} style={navButtonStyle('admin')}>⚙️ System Admin</button>
+          )}
         </div>
 
         <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '20px', textAlign: 'center' }}>
@@ -674,29 +851,79 @@ const Dashboard = ({ authToken, userRole, logout }) => {
           </div>
         )}
 
-        {/* 4. Debate Sessions */}
+        {/* 4. Debate Sessions / Manager Dashboard */}
         {activeTab === 'sessions' && (
           <div style={{ background: 'white', padding: '30px', borderRadius: '16px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)', border: '1px solid #f1f5f9' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-              <h2 style={{ marginTop: 0, marginBottom: 0, color: '#0f172a' }}>Debate Sessions</h2>
-              <button onClick={() => setShowScheduleModal(true)} style={{ padding: '8px 16px', background: '#10b981', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>+ New Session</button>
+              <h2 style={{ marginTop: 0, marginBottom: 0, color: '#0f172a' }}>{isManager ? 'Classroom Activity' : 'Debate Sessions'}</h2>
+              {!isManager && (
+                <button onClick={() => setShowScheduleModal(true)} style={{ padding: '8px 16px', background: '#10b981', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>+ New Session</button>
+              )}
             </div>
             
             {isManager ? (
-              <div>
-                <p style={{ color: '#64748b' }}>Monitor live rooms and assign topics to specific learners.</p>
-              </div>
-            ) : null}
+              <div style={{ marginTop: '20px' }}>
+                <p style={{ color: '#64748b', marginBottom: '20px' }}>Review AI-generated debate transcripts and monitor student performance.</p>
+                {isLoadingStudents ? (
+                  <p style={{ color: '#4f46e5', fontWeight: 'bold' }}>🔄 Loading student sessions...</p>
+                ) : studentHistories.length === 0 ? (
+                  <div style={{ padding: '30px', background: '#f8fafc', borderRadius: '12px', textAlign: 'center', border: '2px dashed #cbd5e1' }}>
+                    <p style={{ color: '#64748b', margin: 0 }}>No student debates found yet.</p>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                    {studentHistories.map((session, idx) => {
+                      const avgScore = Math.round((session.clarity + session.relevance + session.evidence_strength + session.logical_consistency + session.persuasiveness) / 5);
+                      return (
+                        <div key={idx} style={{ padding: '24px', background: '#f8fafc', borderLeft: '4px solid #10b981', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', borderTop: '1px solid #e2e8f0', borderRight: '1px solid #e2e8f0', borderBottom: '1px solid #e2e8f0' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                            <div>
+                              <strong style={{ display: 'block', fontSize: '18px', color: '#0f172a' }}>{session.learner_name}</strong>
+                              <span style={{ color: '#64748b', fontSize: '13px' }}>{session.learner_email} • {session.debate_format} • {new Date(session.timestamp).toLocaleDateString()}</span>
+                            </div>
+                            <span style={{ background: avgScore > 75 ? '#dcfce7' : '#fef3c7', color: avgScore > 75 ? '#166534' : '#92400e', padding: '6px 12px', borderRadius: '20px', fontSize: '14px', fontWeight: 'bold' }}>
+                              Avg AI Score: {avgScore}/100
+                            </span>
+                          </div>
+                          <div style={{ marginTop: '15px' }}>
+                            <strong style={{ fontSize: '13px', color: '#475569', textTransform: 'uppercase' }}>Student Argument:</strong>
+                            <p style={{ marginTop: '5px', color: '#334155', fontSize: '14px', fontStyle: 'italic', background: 'white', padding: '15px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                              "{session.user_transcript}"
+                            </p>
+                          </div>
+                          
+                          {/* Display Existing Feedback */}
+                          {session.coach_feedback && (
+                            <div style={{ background: '#e0e7ff', padding: '12px', borderRadius: '8px', marginTop: '10px', borderLeft: '4px solid #4f46e5' }}>
+                              <strong style={{ color: '#3730a3' }}>Coach Feedback:</strong> <span style={{ color: '#312e81' }}>{session.coach_feedback}</span>
+                            </div>
+                          )}
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', marginTop: '20px' }}>
-              <h4 style={{ margin: 0, color: '#334155' }}>My Upcoming Sessions</h4>
-              {sessionsList.map((session, index) => (
-                <div key={index} style={{ padding: '20px', background: '#f8fafc', borderLeft: '4px solid #4f46e5', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
-                  <strong style={{ display: 'block', fontSize: '16px', marginBottom: '5px', color: '#0f172a' }}>{session.title}</strong>
-                  <span style={{ color: '#64748b', fontSize: '14px' }}>Session ID: {session.id} • {session.timing} ({session.format})</span>
-                </div>
-              ))}
-            </div>
+                          {/* Wire up the Feedback Button */}
+                          {(userRole === 'Debate Coach' || userRole === 'Educator') && (
+                            <button 
+                              onClick={() => setFeedbackModal({ isOpen: true, turnId: session.id, text: session.coach_feedback || '' })}
+                              style={{ marginTop: '15px', padding: '10px 20px', background: '#4f46e5', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: 'bold', transition: 'background 0.2s' }}>
+                              ✍️ {session.coach_feedback ? 'Edit Feedback' : 'Add Coach Feedback'}
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', marginTop: '20px' }}>
+                <h4 style={{ margin: 0, color: '#334155' }}>My Upcoming Sessions</h4>
+                {sessionsList.map((session, index) => (
+                  <div key={index} style={{ padding: '20px', background: '#f8fafc', borderLeft: '4px solid #4f46e5', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+                    <strong style={{ display: 'block', fontSize: '16px', marginBottom: '5px', color: '#0f172a' }}>{session.title}</strong>
+                    <span style={{ color: '#64748b', fontSize: '14px' }}>Session ID: {session.id} • {session.timing} ({session.format})</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
         
@@ -749,74 +976,103 @@ const Dashboard = ({ authToken, userRole, logout }) => {
                   {isAnalyzing ? "Analyzing Argument..." : "Get AI Feedback ✨"}
                 </button>
 
-                {analysisResult && analysisResult.scores ? (
+                {/* --- LIVE STREAMING TEXT DISPLAY --- */}
+                {(isAnalyzing || (streamingText && !analysisResult)) && (
+                  <div style={{ marginTop: '30px', padding: '20px', background: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                    <h3 style={{ marginTop: 0, color: '#0f172a', fontSize: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontSize: '18px' }}>🔄</span> AI is thinking...
+                    </h3>
+                    <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', color: '#334155', lineHeight: '1.6', margin: 0, fontSize: '14px' }}>
+                      {streamingText}
+                    </pre>
+                  </div>
+                )}
+
+                {/* --- FULL ANALYSIS RESULTS RENDER (Shows when stream is complete) --- */}
+                {analysisResult && analysisResult.counter_argument ? (
                   <div style={{ marginTop: '30px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
                     
-                    <div style={{ background: 'white', padding: '20px', borderRadius: '8px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
-                      <h3 style={{ marginTop: 0, color: '#1e293b', fontSize: '18px' }}>Argument Breakdown</h3>
-                      
-                      {analysisResult.user_transcript && (
-                        <div style={{ marginBottom: '15px', padding: '15px', background: '#f8fafc', borderRadius: '8px', borderLeft: '4px solid #10b981' }}>
-                          <strong style={{ color: '#334155', display: 'block', marginBottom: '5px' }}>🗣️ What the AI Heard:</strong>
-                          <span style={{ color: '#475569', fontStyle: 'italic', lineHeight: '1.5' }}>"{analysisResult.user_transcript}"</span>
-                        </div>
-                      )}
-
-                      <p style={{ color: '#334155', margin: '10px 0' }}><strong>Core Claim:</strong> {analysisResult.core_claim}</p>
-                      <div style={{ marginTop: '10px' }}>
-                        <strong style={{ color: '#334155' }}>Evidence Provided:</strong>
-                        <ul style={{ color: '#475569', paddingLeft: '20px', marginTop: '5px' }}>
-                          {analysisResult.supporting_evidence?.map((ev, idx) => (
-                            <li key={idx} style={{ marginBottom: '5px' }}>{ev}</li>
-                          ))}
-                        </ul>
+                    {/* 1. What the AI Heard */}
+                    {analysisResult.user_transcript && (
+                      <div style={{ padding: '15px', background: '#f8fafc', borderRadius: '8px', borderLeft: '4px solid #10b981' }}>
+                        <strong style={{ color: '#334155', display: 'block', marginBottom: '5px' }}>🗣️ What the AI Heard:</strong>
+                        <span style={{ color: '#475569', fontStyle: 'italic', lineHeight: '1.5' }}>"{analysisResult.user_transcript}"</span>
                       </div>
-                    </div>
+                    )}
 
+                    {/* 2. Evaluation Scores */}
                     <div style={{ background: 'white', padding: '20px', borderRadius: '8px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
                       <h3 style={{ marginTop: 0, color: '#1e293b', fontSize: '18px', marginBottom: '20px' }}>Evaluation Scores</h3>
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px' }}>
-                        {Object.entries(analysisResult.scores).map(([metric, score]) => (
-                          <div key={metric} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                            <span style={{ textTransform: 'capitalize', color: '#475569', width: '35%', fontSize: '14px', fontWeight: '500' }}>
-                              {metric.replace('_', ' ')}
-                            </span>
+                        {[
+                          { label: "Argument Quality", value: analysisResult.argument_quality_score },
+                          { label: "Evidence Usage", value: analysisResult.evidence_usage_score },
+                          { label: "Logical Consistency", value: analysisResult.logical_consistency_score },
+                          { label: "Rebuttal Effectiveness", value: analysisResult.rebuttal_effectiveness_score },
+                          { label: "Communication Skills", value: analysisResult.communication_skills_score }
+                        ].map((metric, idx) => (
+                          <div key={idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <span style={{ color: '#475569', width: '45%', fontSize: '14px', fontWeight: '500' }}>{metric.label}</span>
                             <div style={{ flex: 1, margin: '0 15px', background: '#e2e8f0', borderRadius: '999px', height: '10px' }}>
-                              <div style={{ background: '#4f46e5', height: '10px', borderRadius: '999px', width: `${score}%`, transition: 'width 1s ease-in-out' }}></div>
+                              <div style={{ background: '#4f46e5', height: '10px', borderRadius: '999px', width: `${metric.value || 0}%`, transition: 'width 1s ease-in-out' }}></div>
                             </div>
-                            <span style={{ fontWeight: 'bold', color: '#1e293b', width: '50px', textAlign: 'right' }}>{score}/100</span>
+                            <span style={{ fontWeight: 'bold', color: '#1e293b', width: '50px', textAlign: 'right' }}>{metric.value || 0}/100</span>
                           </div>
                         ))}
                       </div>
                     </div>
 
-                    {analysisResult.fallacies_detected?.length > 0 && (
+                    {/* 3. Restored Logical Fallacies UI */}
+                    {analysisResult.fallacies_detected?.length > 0 && analysisResult.fallacies_detected.some(f => f.fallacy_detected) && (
                       <div style={{ background: '#fef2f2', padding: '20px', borderRadius: '8px', border: '1px solid #fecaca' }}>
                         <h3 style={{ marginTop: 0, color: '#b91c1c', fontSize: '18px', display: 'flex', alignItems: 'center', gap: '10px' }}>
                           🚨 Logical Fallacies Detected
                         </h3>
-                        {analysisResult.fallacies_detected.map((fallacy, idx) => (
+                        {analysisResult.fallacies_detected.map((fallacy, idx) => fallacy.fallacy_detected ? (
                           <div key={idx} style={{ marginBottom: '15px' }}>
-                            <h4 style={{ color: '#b91c1c', margin: '0 0 5px 0' }}>{fallacy.fallacy_name}</h4>
+                            <h4 style={{ color: '#b91c1c', margin: '0 0 5px 0' }}>{fallacy.fallacy_type}</h4>
                             <blockquote style={{ fontStyle: 'italic', borderLeft: '4px solid #f87171', paddingLeft: '15px', margin: '10px 0', color: '#7f1d1d', background: '#fee2e2', padding: '10px 15px', borderRadius: '0 8px 8px 0' }}>
-                              "{fallacy.quote}"
+                              "{fallacy.offending_text}"
                             </blockquote>
                             <p style={{ margin: '5px 0', color: '#1e293b', fontSize: '14px' }}><strong>Why:</strong> {fallacy.explanation}</p>
-                            <p style={{ margin: '5px 0', color: '#047857', fontSize: '14px' }}><strong>Fix:</strong> {fallacy.correction_suggestion}</p>
+                            <p style={{ margin: '5px 0', color: '#047857', fontSize: '14px' }}><strong>Fix:</strong> {fallacy.counter_strategy}</p>
+                          </div>
+                        ) : null)}
+                      </div>
+                    )}
+
+                    {/* 4. Actionable Feedback */}
+                    {analysisResult.actionable_feedback?.length > 0 && (
+                      <div style={{ background: '#fffbeb', padding: '20px', borderRadius: '8px', border: '1px solid #fde68a' }}>
+                        <h3 style={{ marginTop: 0, color: '#b45309', fontSize: '18px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          💡 Actionable Feedback
+                        </h3>
+                        {analysisResult.actionable_feedback.map((item, idx) => (
+                          <div key={idx} style={{ marginBottom: '15px' }}>
+                            <p style={{ margin: '0 0 10px 0', color: '#1e293b', fontSize: '14px' }}><strong>Critique:</strong> {item.critique}</p>
+                            <blockquote style={{ fontStyle: 'italic', borderLeft: '4px solid #f59e0b', paddingLeft: '15px', margin: '0', color: '#92400e', background: '#fef3c7', padding: '10px 15px', borderRadius: '0 8px 8px 0' }}>
+                              <strong>Try this instead:</strong> {item.rewrite_recommendation}
+                            </blockquote>
                           </div>
                         ))}
                       </div>
                     )}
 
+                    {/* 5. AI Rebuttal */}
                     <div style={{ background: '#eff6ff', padding: '20px', borderRadius: '8px', borderLeft: '4px solid #3b82f6', borderTop: '1px solid #bfdbfe', borderRight: '1px solid #bfdbfe', borderBottom: '1px solid #bfdbfe' }}>
-                      <h3 style={{ marginTop: 0, color: '#1e3a8a', fontSize: '18px', marginBottom: '10px' }}>AI Coach Rebuttal</h3>
-                      <p style={{ margin: 0, color: '#1e40af', lineHeight: '1.6' }}>{analysisResult.ai_rebuttal}</p>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                        <h3 style={{ margin: 0, color: '#1e3a8a', fontSize: '18px' }}>AI Coach Rebuttal</h3>
+                        <span style={{ background: '#dbeafe', color: '#1e40af', padding: '4px 12px', borderRadius: '999px', fontSize: '12px', fontWeight: 'bold' }}>
+                          {analysisResult.counter_argument.rebuttal_type} Type
+                        </span>
+                      </div>
+                      <p style={{ margin: '0 0 15px 0', color: '#1e40af', lineHeight: '1.6' }}>{analysisResult.counter_argument.rebuttal_text}</p>
+                      <div style={{ background: 'white', padding: '15px', borderRadius: '8px', border: '1px solid #bfdbfe' }}>
+                        <strong style={{ color: '#1e3a8a', display: 'flex', alignItems: 'center', gap: '5px' }}>🤔 Challenge Question:</strong>
+                        <p style={{ margin: '5px 0 0 0', color: '#334155', fontStyle: 'italic' }}>{analysisResult.counter_argument.challenge_question}</p>
+                      </div>
                     </div>
 
-                  </div>
-                ) : analysisResult ? (
-                  <div style={{ marginTop: '30px', padding: '25px', background: '#fefce8', border: '1px solid #fef08a', borderRadius: '8px', color: '#854d0e' }}>
-                    Received feedback from backend, but formatting is unexpected. Check your developer console!
                   </div>
                 ) : null}
               </>
@@ -824,7 +1080,7 @@ const Dashboard = ({ authToken, userRole, logout }) => {
           </div>
         )}
 
-        {/* 7. REPORTS & SKILLS (With Pie Chart Integration) */}
+        {/* 7. REPORTS & SKILLS (With Radar Chart Integration) */}
         {activeTab === 'reports' && (
           <div style={{ background: 'white', padding: '30px', borderRadius: '16px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)', border: '1px solid #f1f5f9' }}>
             <h2 style={{ marginTop: 0, color: '#0f172a' }}>Skill Tracking & Reports</h2>
@@ -844,56 +1100,35 @@ const Dashboard = ({ authToken, userRole, logout }) => {
                   <div>
                     <p style={{ color: '#64748b', marginBottom: '25px' }}>Averages based on your last <strong>{totalDebates}</strong> debate turn(s).</p>
                     
-                    {/* --- PIE CHART VISUALIZATION SECTION --- */}
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '40px', background: '#f8fafc', padding: '30px', borderRadius: '16px', border: '1px solid #e2e8f0', marginBottom: '40px', flexWrap: 'wrap' }}>
-                      
-                      {/* Conic Gradient Pie Chart Element */}
-                      <div style={{ 
-                        width: '180px', 
-                        height: '180px', 
-                        borderRadius: '50%', 
-                        background: `conic-gradient(
-                          #4f46e5 0deg ${logicDeg}deg, 
-                          #10b981 ${logicDeg}deg ${speakingDeg}deg, 
-                          #f59e0b ${speakingDeg}deg 360deg
-                        )`,
-                        boxShadow: '0 4px 10px rgba(0,0,0,0.1)',
-                        position: 'relative'
-                      }}>
-                        {/* Inner Hole for Donut/Pie look */}
-                        <div style={{
-                          position: 'absolute',
-                          top: '35px',
-                          left: '35px',
-                          width: '110px',
-                          height: '110px',
-                          background: 'white',
-                          borderRadius: '50%',
-                          display: 'flex',
-                          flexDirection: 'column',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.05)'
-                        }}>
-                          <span style={{ fontSize: '12px', color: '#64748b', fontWeight: 'bold' }}>OVERALL</span>
-                          <span style={{ fontSize: '18px', color: '#0f172a', fontWeight: 'bold' }}>{Math.round((avgLogic + avgSpeaking + avgEvidence) / 3)}%</span>
-                        </div>
-                      </div>
-
-                      {/* Legend / Metrics Breakdown */}
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', minWidth: '220px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                          <span style={{ width: '16px', height: '16px', background: '#4f46e5', borderRadius: '4px', display: 'inline-block' }}></span>
-                          <span style={{ color: '#334155', fontWeight: '500' }}>Average Logic: <strong>{avgLogic}%</strong></span>
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                          <span style={{ width: '16px', height: '16px', background: '#10b981', borderRadius: '4px', display: 'inline-block' }}></span>
-                          <span style={{ color: '#334155', fontWeight: '500' }}>Clarity & Persuasion: <strong>{avgSpeaking}%</strong></span>
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                          <span style={{ width: '16px', height: '16px', background: '#f59e0b', borderRadius: '4px', display: 'inline-block' }}></span>
-                          <span style={{ color: '#334155', fontWeight: '500' }}>Evidence Strength: <strong>{avgEvidence}%</strong></span>
-                        </div>
+                    {/* --- RADAR CHART VISUALIZATION SECTION --- */}
+                    <div style={{ background: '#f8fafc', padding: '30px', borderRadius: '16px', border: '1px solid #e2e8f0', marginBottom: '40px' }}>
+                      <h3 style={{ marginTop: 0, textAlign: 'center', color: '#1e293b', fontSize: '18px', marginBottom: '20px' }}>
+                        Performance Overview
+                      </h3>
+                      <div style={{ width: '100%', height: '350px' }}>
+                        <ResponsiveContainer width="100%" height="100%">
+                          <RadarChart 
+                            cx="50%" 
+                            cy="50%" 
+                            outerRadius="75%" 
+                            data={[
+                              { subject: 'Argument Quality', score: totalDebates ? Math.round(historyData.reduce((sum, row) => sum + row.relevance, 0) / totalDebates) : 0, fullMark: 100 },
+                              { subject: 'Evidence Usage', score: avgEvidence, fullMark: 100 },
+                              { subject: 'Logical Consistency', score: avgLogic, fullMark: 100 },
+                              { subject: 'Rebuttal Skill', score: totalDebates ? Math.round(historyData.reduce((sum, row) => sum + row.persuasiveness, 0) / totalDebates) : 0, fullMark: 100 },
+                              { subject: 'Communication', score: totalDebates ? Math.round(historyData.reduce((sum, row) => sum + row.clarity, 0) / totalDebates) : 0, fullMark: 100 }
+                            ]}
+                          >
+                            <PolarGrid stroke="#cbd5e1" />
+                            <PolarAngleAxis dataKey="subject" tick={{ fill: '#475569', fontSize: 12, fontWeight: 600 }} />
+                            <PolarRadiusAxis angle={30} domain={[0, 100]} tick={{ fill: '#94a3b8', fontSize: 10 }} />
+                            <Radar name="My Skills" dataKey="score" stroke="#4f46e5" strokeWidth={2} fill="#4f46e5" fillOpacity={0.5} />
+                            <Tooltip 
+                              contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}
+                              itemStyle={{ color: '#4f46e5', fontWeight: 'bold' }}
+                            />
+                          </RadarChart>
+                        </ResponsiveContainer>
                       </div>
                     </div>
                     
@@ -907,6 +1142,9 @@ const Dashboard = ({ authToken, userRole, logout }) => {
                             <th style={{ padding: '12px 16px' }}>Clarity</th>
                             <th style={{ padding: '12px 16px' }}>Persuasion</th>
                             <th style={{ padding: '12px 16px' }}>Date</th>
+                            <th style={{ padding: '12px 16px' }}>Coach Remarks</th>
+                            {/* NEW: Action column header */}
+                            <th style={{ padding: '12px 16px' }}>Action</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -917,6 +1155,18 @@ const Dashboard = ({ authToken, userRole, logout }) => {
                               <td style={{ padding: '12px 16px', color: '#10b981', fontWeight: 'bold' }}>{row.clarity}</td>
                               <td style={{ padding: '12px 16px', color: '#f59e0b', fontWeight: 'bold' }}>{row.persuasiveness}</td>
                               <td style={{ padding: '12px 16px', color: '#64748b' }}>{new Date(row.timestamp).toLocaleDateString()}</td>
+                              <td style={{ padding: '12px 16px', fontStyle: 'italic', color: row.coach_feedback ? '#047857' : '#94a3b8' }}>
+                                {row.coach_feedback ? `"${row.coach_feedback}"` : 'Pending review'}
+                              </td>
+                              {/* NEW: Export Button */}
+                              <td style={{ padding: '12px 16px' }}>
+                                <button 
+                                  onClick={() => downloadReport(row)} 
+                                  style={{ padding: '6px 12px', background: '#e0e7ff', color: '#4f46e5', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px', transition: 'background 0.2s' }}
+                                >
+                                  📥 Export PDF
+                                </button>
+                              </td>
                             </tr>
                           ))}
                         </tbody>
@@ -928,6 +1178,73 @@ const Dashboard = ({ authToken, userRole, logout }) => {
             )}
           </div>
         )}
+
+        {/* 8. SYSTEM ADMIN PANEL */}
+        {activeTab === 'admin' && userRole === 'Administrator' && (
+          <div style={{ background: 'white', padding: '30px', borderRadius: '16px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)', border: '1px solid #f1f5f9' }}>
+            <h2 style={{ marginTop: 0, color: '#0f172a', marginBottom: '20px' }}>⚙️ System Administration</h2>
+            
+            {/* Global KPIs */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px', marginBottom: '30px' }}>
+              <div style={{ background: 'linear-gradient(135deg, #1e293b 0%, #334155 100%)', padding: '20px', borderRadius: '12px', color: 'white', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
+                <span style={{ fontSize: '13px', textTransform: 'uppercase', fontWeight: 'bold', opacity: 0.8 }}>Total Registered Users</span>
+                <div style={{ fontSize: '32px', fontWeight: 'bold', marginTop: '10px' }}>{adminData.stats.total_users}</div>
+              </div>
+              <div style={{ background: 'linear-gradient(135deg, #4f46e5 0%, #6366f1 100%)', padding: '20px', borderRadius: '12px', color: 'white', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
+                <span style={{ fontSize: '13px', textTransform: 'uppercase', fontWeight: 'bold', opacity: 0.8 }}>Total Platform Debates</span>
+                <div style={{ fontSize: '32px', fontWeight: 'bold', marginTop: '10px' }}>{adminData.stats.total_debates}</div>
+              </div>
+              <div style={{ background: 'linear-gradient(135deg, #0f766e 0%, #14b8a6 100%)', padding: '20px', borderRadius: '12px', color: 'white', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
+                <span style={{ fontSize: '13px', textTransform: 'uppercase', fontWeight: 'bold', opacity: 0.8 }}>System Health</span>
+                <div style={{ fontSize: '24px', fontWeight: 'bold', marginTop: '10px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ display: 'inline-block', width: '12px', height: '12px', background: '#4ade80', borderRadius: '50%' }}></span> Online
+                </div>
+              </div>
+            </div>
+
+            {/* User Management Table */}
+            <h3 style={{ color: '#1e293b', fontSize: '18px', marginBottom: '15px' }}>User Management Directory</h3>
+            {isLoadingAdmin ? (
+              <p style={{ color: '#64748b' }}>🔄 Fetching database records...</p>
+            ) : (
+              <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: '8px' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px' }}>
+                  <thead>
+                    <tr style={{ background: '#f8fafc', color: '#475569', borderBottom: '2px solid #e2e8f0' }}>
+                      <th style={{ padding: '12px 16px' }}>Name</th>
+                      <th style={{ padding: '12px 16px' }}>Email</th>
+                      <th style={{ padding: '12px 16px' }}>Role</th>
+                      <th style={{ padding: '12px 16px' }}>Experience</th>
+                      <th style={{ padding: '12px 16px', textAlign: 'right' }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {adminData.users.map((user, idx) => (
+                      <tr key={idx} style={{ borderBottom: '1px solid #e2e8f0' }}>
+                        <td style={{ padding: '12px 16px', color: '#1e293b', fontWeight: 'bold' }}>{user.username}</td>
+                        <td style={{ padding: '12px 16px', color: '#64748b' }}>{user.email}</td>
+                        <td style={{ padding: '12px 16px' }}>
+                          <span style={{ 
+                            background: user.role === 'Administrator' ? '#fee2e2' : user.role === 'Educator' ? '#dcfce7' : user.role === 'Debate Coach' ? '#f3e8ff' : '#e0e7ff', 
+                            color: user.role === 'Administrator' ? '#991b1b' : user.role === 'Educator' ? '#166534' : user.role === 'Debate Coach' ? '#6b21a8' : '#3730a3', 
+                            padding: '4px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: 'bold' 
+                          }}>
+                            {user.role}
+                          </span>
+                        </td>
+                        <td style={{ padding: '12px 16px', color: '#475569' }}>{user.experiencelevel || user.experienceLevel}</td>
+                        <td style={{ padding: '12px 16px', textAlign: 'right' }}>
+                          <button style={{ padding: '6px 12px', background: 'white', border: '1px solid #cbd5e1', color: '#0f172a', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>Manage</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
       </div>
 
       {/* --- ADD TOPIC MODAL OVERLAY --- */}
@@ -1010,6 +1327,28 @@ const Dashboard = ({ authToken, userRole, logout }) => {
               <div style={{ display: 'flex', gap: '10px', marginTop: '15px' }}>
                 <button type="button" onClick={() => setShowScheduleModal(false)} style={{ flex: 1, padding: '12px', background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}>Cancel</button>
                 <button type="submit" style={{ flex: 1, padding: '12px', background: '#4f46e5', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}>Confirm Booking</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* NEW: COACH FEEDBACK MODAL OVERLAY */}
+      {feedbackModal.isOpen && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(15, 23, 42, 0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, backdropFilter: 'blur(4px)' }}>
+          <div style={{ background: 'white', padding: '30px', borderRadius: '16px', width: '100%', maxWidth: '450px', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)' }}>
+            <h2 style={{ marginTop: 0, marginBottom: '20px', color: '#0f172a' }}>Add Mentorship Feedback</h2>
+            <form onSubmit={handleFeedbackSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+              <textarea 
+                required 
+                placeholder="Provide constructive feedback for the student..."
+                value={feedbackModal.text} 
+                onChange={(e) => setFeedbackModal({...feedbackModal, text: e.target.value})} 
+                style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #cbd5e1', outline: 'none', height: '120px', resize: 'vertical' }} 
+              />
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <button type="button" onClick={() => setFeedbackModal({ isOpen: false, turnId: null, text: '' })} style={{ flex: 1, padding: '12px', background: '#f1f5f9', color: '#475569', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>Cancel</button>
+                <button type="submit" style={{ flex: 1, padding: '12px', background: '#4f46e5', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>Save Feedback</button>
               </div>
             </form>
           </div>
