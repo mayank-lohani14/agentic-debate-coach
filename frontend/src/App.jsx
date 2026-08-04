@@ -31,6 +31,16 @@ const FloatingChatbot = ({ authToken, userRole = 'Learner', activeTab = 'dashboa
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading]);
 
+  // NEW: Function to clean Markdown symbols from the AI's response
+  const formatMessage = (text) => {
+    if (!text) return '';
+    return text
+      .replace(/\*\*(.*?)\*\*/g, '$1') // Removes ** but keeps the text inside
+      .replace(/\*(.*?)\*/g, '$1')     // Removes * but keeps the text inside
+      .replace(/#{1,3}\s/g, '')        // Removes #, ##, or ###
+      .replace(/---/g, '');            // Removes horizontal rule dashes
+  };
+
   const sendMessage = async (e) => {
     e.preventDefault();
     if (!input.trim()) return;
@@ -177,6 +187,7 @@ const FloatingChatbot = ({ authToken, userRole = 'Learner', activeTab = 'dashboa
                     fontSize: '14px',
                     lineHeight: '1.6',
                     wordBreak: 'break-word',
+                    whiteSpace: 'pre-wrap', // NEW: Ensures paragraphs and newlines format correctly
                     background: msg.sender === 'user' ? 'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)' : '#1e293b',
                     color: '#ffffff',
                     border: msg.sender === 'ai' ? '1px solid #2a324b' : 'none',
@@ -185,7 +196,8 @@ const FloatingChatbot = ({ authToken, userRole = 'Learner', activeTab = 'dashboa
                     borderBottomLeftRadius: msg.sender === 'ai' ? '4px' : '18px',
                   }}
                 >
-                  {msg.text}
+                  {/* Apply the formatting cleaner here */}
+                  {formatMessage(msg.text)}
                 </div>
                 <span style={{ fontSize: '11px', color: '#64748b', marginTop: '6px', alignSelf: msg.sender === 'user' ? 'flex-end' : 'flex-start' }}>
                   {msg.timestamp}
