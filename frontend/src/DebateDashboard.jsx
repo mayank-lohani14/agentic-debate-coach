@@ -31,6 +31,15 @@ export const DebateDashboard = () => {
     }
   };
 
+  // Helper to structure the new Milestone 3 scores for the UI bars
+  const displayScores = feedback ? [
+    { label: "Argument Quality", value: feedback.argument_quality_score || 0 },
+    { label: "Evidence Usage", value: feedback.evidence_usage_score || 0 },
+    { label: "Logical Consistency", value: feedback.logical_consistency_score || 0 },
+    { label: "Rebuttal Effectiveness", value: feedback.rebuttal_effectiveness_score || 0 },
+    { label: "Communication Skills", value: feedback.communication_skills_score || 0 }
+  ] : [];
+
   return (
     <div className="font-sans">
       <h2 className="text-2xl font-bold mb-6">Live Debate Room</h2>
@@ -67,46 +76,57 @@ export const DebateDashboard = () => {
         {isLoading ? "Analyzing..." : "Get AI Feedback ✨"}
       </button>
 
-      {/* NEW RENDER LOGIC FOR STRUCTURED JSON */}
-      {feedback && feedback.scores ? (
+      {/* NEW RENDER LOGIC FOR MILESTONE 3 STRUCTURED JSON */}
+      {feedback && feedback.counter_argument ? (
         <div className="space-y-6">
           
-          {/* 1. Core Analysis */}
+          {/* 1. Overall Performance Banner (New for Milestone 3) */}
+          <div className="bg-gradient-to-r from-indigo-500 to-purple-600 p-6 rounded-lg shadow-sm text-white flex justify-between items-center">
+             <div>
+               <h3 className="text-xl font-bold">Overall Performance</h3>
+               <p className="text-indigo-100 text-sm mt-1">Weighted Debate Score</p>
+             </div>
+             <div className="text-4xl font-extrabold">
+               {feedback.overall_performance_score}/100
+             </div>
+          </div>
+
+          {/* 2. Core Analysis */}
           <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
             <h3 className="text-xl font-bold mb-3 text-gray-800">Argument Breakdown</h3>
-            <p className="text-gray-700"><strong>Core Claim:</strong> {feedback.core_claim}</p>
+            <p className="text-gray-700"><strong>Core Claim:</strong> {feedback.core_claim || "Claim extracted in background."}</p>
             <div className="mt-3">
               <strong className="text-gray-700">Evidence Provided:</strong>
               <ul className="list-disc ml-6 mt-2 text-gray-600 space-y-1">
-                {feedback.supporting_evidence?.map((ev, idx) => (
+                {feedback.supporting_evidence?.length > 0 ? feedback.supporting_evidence.map((ev, idx) => (
                   <li key={idx}>{ev}</li>
-                ))}
+                )) : <li>No specific evidence detected.</li>}
               </ul>
             </div>
           </div>
 
-          {/* 2. Evaluation Scores */}
+          {/* 3. Evaluation Scores */}
           <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
             <h3 className="text-xl font-bold mb-5 text-gray-800">Evaluation Scores</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {Object.entries(feedback.scores).map(([metric, score]) => (
-                <div key={metric} className="flex items-center justify-between">
+              {displayScores.map((item, idx) => (
+                <div key={idx} className="flex items-center justify-between">
                   <span className="capitalize font-medium text-gray-600 w-1/3">
-                    {metric.replace('_', ' ')}
+                    {item.label}
                   </span>
                   <div className="flex-1 mx-4 bg-gray-200 rounded-full h-3">
                     <div 
                       className="bg-indigo-500 h-3 rounded-full transition-all duration-1000" 
-                      style={{ width: `${score}%` }}
+                      style={{ width: `${item.value}%` }}
                     ></div>
                   </div>
-                  <span className="font-bold text-gray-700 w-12 text-right">{score}/100</span>
+                  <span className="font-bold text-gray-700 w-12 text-right">{item.value}/100</span>
                 </div>
               ))}
             </div>
           </div>
 
-          {/* 3. Logical Fallacies */}
+          {/* 4. Logical Fallacies (Safeguarded if missing in new schema) */}
           {feedback.fallacies_detected?.length > 0 && (
             <div className="bg-red-50 p-6 rounded-lg border border-red-200">
               <h3 className="text-xl font-bold text-red-700 mb-4 flex items-center">
@@ -125,10 +145,12 @@ export const DebateDashboard = () => {
             </div>
           )}
 
-          {/* 4. AI Rebuttal */}
+          {/* 5. AI Rebuttal */}
           <div className="bg-indigo-50 p-6 rounded-lg border-l-4 border-indigo-500 border-y border-r border-indigo-100 shadow-sm">
             <h3 className="text-xl font-bold text-indigo-900 mb-3">AI Coach Rebuttal</h3>
-            <p className="text-indigo-800 leading-relaxed">{feedback.ai_rebuttal}</p>
+            <p className="text-indigo-800 leading-relaxed">
+              {feedback.counter_argument?.rebuttal_text || "Rebuttal text processing..."}
+            </p>
           </div>
 
         </div>

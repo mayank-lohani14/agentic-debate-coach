@@ -34,7 +34,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 3. THEN include the router
+# 3. THEN include the router (this links to our LangGraph endpoint in ai_engine.py)
 app.include_router(debate_router)
 
 # 4. Configure Gemini Client
@@ -118,10 +118,17 @@ def init_db():
                 logical_consistency INTEGER,
                 persuasiveness INTEGER,
                 ai_rebuttal TEXT,
+                coach_feedback TEXT,
                 timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         ''')
         
+        # Safely add the column if the table already existed before this update
+        try:
+            cursor.execute('ALTER TABLE debate_turns ADD COLUMN coach_feedback TEXT;')
+        except psycopg2.errors.DuplicateColumn:
+            pass # Column already exists
+            
         conn.commit()
         cursor.close()
         conn.close()
@@ -139,32 +146,16 @@ class UserRegistration(BaseModel):
     role: str
     experienceLevel: str
 
-class Fallacy(BaseModel):
-    fallacy_name: str = Field(description="Name of the fallacy (e.g., Ad Hominem, Straw Man, Slippery Slope)")
-    quote: str = Field(description="The exact quote from the user demonstrating the fallacy")
-    explanation: str = Field(description="Why this is a logical fallacy")
-    correction_suggestion: str = Field(description="How to fix the argument")
-
-class EvaluationScores(BaseModel):
-    clarity: int = Field(description="Score out of 100 for Clarity")
-    relevance: int = Field(description="Score out of 100 for Relevance")
-    evidence_strength: int = Field(description="Score out of 100 for Evidence Strength")
-    logical_consistency: int = Field(description="Score out of 100 for Logical Consistency")
-    persuasiveness: int = Field(description="Score out of 100 for Persuasiveness")
-
-class ArgumentAnalysisResult(BaseModel):
-    core_claim: str = Field(description="The main point the user is trying to make")
-    supporting_evidence: List[str] = Field(description="List of evidence provided by the user")
-    scores: EvaluationScores = Field(description="The 5 evaluation criteria scores")
-    fallacies_detected: List[Fallacy] = Field(description="List of detected fallacies. Empty if none.")
-    ai_rebuttal: str = Field(description="A short, logical counterargument based on the debate format")
-
-# UPDATED: Added current_page and user_role to the ChatMessage schema
 class ChatMessage(BaseModel):
     message: str
     current_page: str = Field(default="dashboard", description="The current active tab/page in the frontend")
     user_role: str = Field(default="Learner", description="Role of the user")
     session_id: Optional[str] = "default_session"
+
+# NEW: Schema for Coach Feedback
+class CoachFeedback(BaseModel):
+    turn_id: int
+    feedback: str
 
 # ---------------------------------------------------------
 # 5. AUTHENTICATION ENDPOINTS (POSTGRESQL)
@@ -214,108 +205,7 @@ async def login_user(username: str = Form(...), password: str = Form(...)):
     }
 
 # ---------------------------------------------------------
-# 6. DEBATE TURN ANALYSIS API ENDPOINT (AUDIO/TEXT + GEMINI + POSTGRES)
-# ---------------------------------------------------------
-@app.post("/api/v1/debate/turn")
-async def analyze_debate_turn(
-    text_argument: Optional[str] = Form(""),
-    debate_format: str = Form(...),
-    session_id: str = Form(...),
-    duration: Optional[str] = Form("0"),
-    audio_file: Optional[UploadFile] = File(None),
-    authorization: Optional[str] = Header(None)
-):
-    user_email = "anonymous"
-    if authorization and authorization.startswith("Bearer "):
-        token = authorization.split(" ")[1]
-        try:
-            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-            user_email = payload.get("sub", "anonymous")
-        except jwt.PyJWTError:
-            user_email = "anonymous"
-
-    target_text = text_argument
-
-    try:
-        if audio_file:
-            audio_bytes = await audio_file.read()
-            temp_filename = f"temp_{session_id}_{audio_file.filename}"
-            with open(temp_filename, "wb") as f:
-                f.write(audio_bytes)
-            
-            try:
-                uploaded_file = client.files.upload(file=temp_filename)
-                transcription_prompt = "Transcribe the exact speech from this audio file accurately for a debate analysis."
-                transcript_response = client.models.generate_content(
-                    model='gemini-3.1-flash-lite',
-                    contents=[uploaded_file, transcription_prompt]
-                )
-                if transcript_response.text:
-                    target_text = transcript_response.text
-            finally:
-                if os.path.exists(temp_filename):
-                    os.remove(temp_filename)
-
-        if not target_text or not target_text.strip():
-            raise HTTPException(status_code=400, detail="No argument text or speech transcript provided.")
-
-        prompt_text = f"""
-You are an expert AI Debate Coach evaluating a user's argument in a {debate_format}.
-
-Evaluate the following argument based on these specific criteria: Clarity, Relevance, Evidence Strength, Logical Consistency, and Persuasiveness (scored out of 100).
-Also, scan the argument for logical fallacies (e.g., Ad Hominem, Straw Man, False Dilemma, Slippery Slope, Appeal to Authority, Circular Reasoning, Hasty Generalization, Red Herring).
-
-User Argument:
-"{target_text}"
-"""
-
-        response = client.models.generate_content(
-            model='gemini-3.1-flash-lite',
-            contents=prompt_text,
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema=ArgumentAnalysisResult,
-                temperature=0.2,
-            ),
-        )
-
-        result_dict = json.loads(response.text)
-
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        
-        scores = result_dict.get("scores", {})
-        
-        cursor.execute('''
-            INSERT INTO debate_turns 
-            (email, session_id, debate_format, user_transcript, clarity, relevance, evidence_strength, logical_consistency, persuasiveness, ai_rebuttal)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-        ''', (
-            user_email,
-            session_id,
-            debate_format,
-            target_text,
-            scores.get("clarity", 0),
-            scores.get("relevance", 0),
-            scores.get("evidence_strength", 0),
-            scores.get("logical_consistency", 0),
-            scores.get("persuasiveness", 0),
-            result_dict.get("ai_rebuttal", "")
-        ))
-        
-        conn.commit()
-        cursor.close()
-        conn.close()
-
-        result_dict["user_transcript"] = target_text
-        return result_dict
-
-    except Exception as e:
-        print(f"❌ Debate Turn Analysis Error: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to analyze argument: {str(e)}")
-
-# ---------------------------------------------------------
-# 7. FETCH HISTORY ENDPOINT (POSTGRESQL)
+# 6. FETCH HISTORY ENDPOINT (POSTGRESQL)
 # ---------------------------------------------------------
 @app.get("/api/v1/debate/history")
 async def get_debate_history(authorization: Optional[str] = Header(None)):
@@ -333,7 +223,7 @@ async def get_debate_history(authorization: Optional[str] = Header(None)):
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         
         cursor.execute('''
-            SELECT debate_format, clarity, relevance, evidence_strength, logical_consistency, persuasiveness, timestamp
+            SELECT debate_format, clarity, relevance, evidence_strength, logical_consistency, persuasiveness, coach_feedback, timestamp
             FROM debate_turns
             WHERE email = %s
             ORDER BY timestamp DESC
@@ -355,11 +245,138 @@ async def get_debate_history(authorization: Optional[str] = Header(None)):
         print(f"❌ History Fetch Error: {str(e)}")
         raise HTTPException(status_code=500, detail="Could not fetch history")
 
+# ---------------------------------------------------------
+# 6.5 MANAGER DASHBOARD ENDPOINT (POSTGRESQL)
+# ---------------------------------------------------------
+@app.get("/api/v1/manager/student-histories")
+async def get_student_histories(authorization: Optional[str] = Header(None)):
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+        
+    token = authorization.split(" ")[1]
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_role = payload.get("role")
+    except jwt.PyJWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    if user_role not in ["Educator", "Debate Coach", "Administrator"]:
+        raise HTTPException(status_code=403, detail="Access denied. Managers only.")
+
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        
+        cursor.execute('''
+            SELECT 
+                dt.id, dt.session_id, dt.debate_format, dt.user_transcript, 
+                dt.clarity, dt.relevance, dt.evidence_strength, 
+                dt.logical_consistency, dt.persuasiveness, dt.ai_rebuttal, dt.coach_feedback, dt.timestamp,
+                u.username AS learner_name, u.email AS learner_email
+            FROM debate_turns dt
+            JOIN users u ON dt.email = u.email
+            WHERE u.role = 'Learner'
+            ORDER BY dt.timestamp DESC;
+        ''')
+        
+        rows = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        
+        history = [dict(row) for row in rows]
+        for item in history:
+            if item.get("timestamp"):
+                item["timestamp"] = item["timestamp"].isoformat()
+
+        return {"data": history}
+    except Exception as e:
+        print(f"❌ Manager Fetch Error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Could not fetch student histories")
+
+# NEW: Submit Coach Feedback Endpoint
+@app.post("/api/v1/manager/feedback")
+async def submit_coach_feedback(data: CoachFeedback, authorization: Optional[str] = Header(None)):
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+        
+    token = authorization.split(" ")[1]
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_role = payload.get("role")
+    except jwt.PyJWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    if user_role not in ["Educator", "Debate Coach", "Administrator"]:
+        raise HTTPException(status_code=403, detail="Access denied.")
+
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute(
+            "UPDATE debate_turns SET coach_feedback = %s WHERE id = %s",
+            (data.feedback, data.turn_id)
+        )
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return {"status": "success", "message": "Feedback saved successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Failed to save feedback")
+
 
 # ---------------------------------------------------------
-# 8. AI COACH CHATBOT ENDPOINT (AGENTIC ORCHESTRATOR)
+# 6.6 ADMIN DASHBOARD ENDPOINT (POSTGRESQL)
 # ---------------------------------------------------------
-# Master Agent Directory Definitions
+@app.get("/api/v1/admin/dashboard-stats")
+async def get_admin_stats(authorization: Optional[str] = Header(None)):
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+        
+    token = authorization.split(" ")[1]
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_role = payload.get("role")
+    except jwt.PyJWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    if user_role != "Administrator":
+        raise HTTPException(status_code=403, detail="Access denied. Administrators only.")
+
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # 1. Fetch all registered users
+        cursor.execute("SELECT username, email, role, experienceLevel FROM users ORDER BY role, username;")
+        users_list = [dict(row) for row in cursor.fetchall()]
+        
+        # 2. Calculate system-wide KPIs
+        cursor.execute("SELECT COUNT(*) as total_users FROM users;")
+        total_users = cursor.fetchone()["total_users"]
+        
+        cursor.execute("SELECT COUNT(*) as total_debates FROM debate_turns;")
+        total_debates = cursor.fetchone()["total_debates"]
+        
+        cursor.close()
+        conn.close()
+        
+        return {
+            "status": "success",
+            "users": users_list,
+            "stats": {
+                "total_users": total_users,
+                "total_debates": total_debates
+            }
+        }
+    except Exception as e:
+        print(f"❌ Admin Fetch Error: {str(e)}")
+        raise HTTPException(status_code=500, detail="Could not fetch admin data")
+
+
+# ---------------------------------------------------------
+# 7. AI COACH CHATBOT ENDPOINT (AGENTIC ORCHESTRATOR)
+# ---------------------------------------------------------
 AGENT_DEFINITIONS = {
     "Argument Analysis Agent": "Deconstruct argument structure, claims, evidence, and logical validity.",
     "Logical Fallacy Detection Agent": "Identify cognitive biases, formal/informal logical fallacies, and provide fixes.",
@@ -371,7 +388,6 @@ AGENT_DEFINITIONS = {
     "Orchestrator Agent": "Coordinate specialized agents and handle platform support questions."
 }
 
-# Mapping frontend active tabs/pages to agent execution pipelines
 PAGE_ROUTING_CONFIG = {
     "dashboard": ["Recommendation & Coaching Agent", "Performance Analytics Agent"],
     "room": ["Argument Analysis Agent", "Logical Fallacy Detection Agent", "Counterargument Generation Agent"],
@@ -400,7 +416,6 @@ async def chat_with_ai_coach(
             user_email = "anonymous"
 
     try:
-        # Determine active agents based on current page
         active_agent_names = PAGE_ROUTING_CONFIG.get(chat_data.current_page, ["Orchestrator Agent"])
         
         agent_instructions = "\n".join([
@@ -408,7 +423,6 @@ async def chat_with_ai_coach(
             for agent in active_agent_names if agent in AGENT_DEFINITIONS
         ])
 
-        # Construct Agentic Orchestrator System Prompt
         chat_prompt = f"""
 You are the **Agentic AI Debate Coach Orchestrator**.
 You coordinate specialized agents to assist users in debate, public speaking, critical thinking, and presentation skills.
