@@ -1,8 +1,9 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { 
   Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, 
-  ResponsiveContainer, Tooltip, LineChart, Line, XAxis, YAxis, CartesianGrid 
+  ResponsiveContainer, Tooltip, LineChart, Line, XAxis, YAxis, CartesianGrid,
+  PieChart, Pie, Cell, Legend
 } from 'recharts';
 import jsPDF from 'jspdf';
 
@@ -16,6 +17,14 @@ const PAGE_AGENT_MAP = {
   'reports': ['Performance Analytics Agent', 'Report Generation Agent'],
   'admin': ['Report Generation Agent', 'Performance Analytics Agent']
 };
+
+// --- Mock Data for Educator Features ---
+const FALLACY_DATA = [
+  { name: 'Ad Hominem', value: 400, color: '#ef4444' },
+  { name: 'Slippery Slope', value: 300, color: '#f59e0b' },
+  { name: 'Red Herring', value: 300, color: '#3b82f6' },
+  { name: 'Straw Man', value: 200, color: '#10b981' },
+];
 
 // --- Floating Chatbot Component ---
 const FloatingChatbot = ({ authToken, userRole = 'Learner', activeTab = 'dashboard' }) => {
@@ -31,7 +40,7 @@ const FloatingChatbot = ({ authToken, userRole = 'Learner', activeTab = 'dashboa
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading]);
 
-  // NEW: Function to clean Markdown symbols from the AI's response
+  // Function to clean Markdown symbols from the AI's response
   const formatMessage = (text) => {
     if (!text) return '';
     return text
@@ -187,7 +196,7 @@ const FloatingChatbot = ({ authToken, userRole = 'Learner', activeTab = 'dashboa
                     fontSize: '14px',
                     lineHeight: '1.6',
                     wordBreak: 'break-word',
-                    whiteSpace: 'pre-wrap', // NEW: Ensures paragraphs and newlines format correctly
+                    whiteSpace: 'pre-wrap',
                     background: msg.sender === 'user' ? 'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)' : '#1e293b',
                     color: '#ffffff',
                     border: msg.sender === 'ai' ? '1px solid #2a324b' : 'none',
@@ -196,7 +205,6 @@ const FloatingChatbot = ({ authToken, userRole = 'Learner', activeTab = 'dashboa
                     borderBottomLeftRadius: msg.sender === 'ai' ? '4px' : '18px',
                   }}
                 >
-                  {/* Apply the formatting cleaner here */}
                   {formatMessage(msg.text)}
                 </div>
                 <span style={{ fontSize: '11px', color: '#64748b', marginTop: '6px', alignSelf: msg.sender === 'user' ? 'flex-end' : 'flex-start' }}>
@@ -322,6 +330,29 @@ const AuthForms = ({ setAuthToken, setUserRole }) => {
 const Dashboard = ({ authToken, userRole, logout }) => {
   const [activeTab, setActiveTab] = useState('dashboard');
   
+  // Topic Management State
+  const [topicSearch, setTopicSearch] = useState('');
+  const [topicFilter, setTopicFilter] = useState('All');
+  const [availableTopics, setAvailableTopics] = useState([
+    { title: "AI Ethics and Data Privacy", difficulty: "Intermediate", category: "Technology", desc: "Debate the moral implications of artificial intelligence and mass data collection." },
+    { title: "Universal Basic Income", difficulty: "Advanced", category: "Economics", desc: "Argue for or against a government-guaranteed baseline income for all citizens." },
+    { title: "Climate Change Policy", difficulty: "Intermediate", category: "Environment", desc: "Evaluate the economic vs. environmental trade-offs of aggressive climate action." },
+    { title: "Space Exploration Funding", difficulty: "Advanced", category: "Science", desc: "Should public funds be diverted from terrestrial issues to fund space colonization?" },
+    { title: "Cryptocurrency Regulation", difficulty: "Intermediate", category: "Finance", desc: "Discuss whether decentralized digital currencies require federal oversight." },
+    { title: "Automation and Job Displacement", difficulty: "Beginner", category: "Society", desc: "Analyze the societal impact of replacing human labor with automated systems." },
+    { title: "Universal Healthcare Systems", difficulty: "Advanced", category: "Healthcare", desc: "Debate the effectiveness of private vs. universally mandated healthcare." }
+  ]);
+  const [showAddTopicModal, setShowAddTopicModal] = useState(false);
+  const [newTopicForm, setNewTopicForm] = useState({ title: '', difficulty: 'Intermediate', category: 'General', desc: '' });
+
+  // Admin State
+  const [adminUserSearch, setAdminUserSearch] = useState('');
+  
+  // Profile Toggles State
+  const [emailNotifs, setEmailNotifs] = useState(true);
+  const [publicProfile, setPublicProfile] = useState(false);
+  const [weeklyReports, setWeeklyReports] = useState(true);
+
   // Debate Room State
   const [argumentText, setArgumentText] = useState('');
   const [debateFormat, setDebateFormat] = useState('One-on-One Debate');
@@ -341,27 +372,10 @@ const Dashboard = ({ authToken, userRole, logout }) => {
   const [isEditingBio, setIsEditingBio] = useState(false);
   const [tempBio, setTempBio] = useState(userBio);
 
-  // Dynamic Topics State
-  const [availableTopics, setAvailableTopics] = useState([
-    { title: "AI Ethics and Data Privacy", difficulty: "Intermediate" },
-    { title: "Universal Basic Income", difficulty: "Advanced" },
-    { title: "Climate Change Policy", difficulty: "Intermediate" },
-    { title: "Space Exploration Funding", difficulty: "Advanced" },
-    { title: "Cryptocurrency Regulation", difficulty: "Intermediate" },
-    { title: "Automation and Job Displacement", difficulty: "Beginner" },
-    { title: "Universal Healthcare Systems", difficulty: "Advanced" }
-  ]);
-
-  // Add Topic Modal State
-  const [showAddTopicModal, setShowAddTopicModal] = useState(false);
-  const [newTopicForm, setNewTopicForm] = useState({ title: '', difficulty: 'Intermediate' });
-
-  // Sessions State (Dynamic List)
+  // Sessions State
   const [sessionsList, setSessionsList] = useState([
     { id: '#1042', title: 'Climate Change Policy', timing: 'Starts in 2 hours', format: 'One-on-One Debate' }
   ]);
-
-  // Scheduling Modal State
   const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [scheduleData, setScheduleData] = useState({ date: '', time: '', topic: 'AI Ethics', format: 'One-on-One Debate' });
 
@@ -377,9 +391,11 @@ const Dashboard = ({ authToken, userRole, logout }) => {
   const [adminData, setAdminData] = useState({ users: [], stats: { total_users: 0, total_debates: 0 } });
   const [isLoadingAdmin, setIsLoadingAdmin] = useState(false);
 
-  // NEW: Feedback Modal State
+  // Feedback Modal State & Drilldown State
   const [feedbackModal, setFeedbackModal] = useState({ isOpen: false, turnId: null, text: '' });
+  const [selectedStudentModal, setSelectedStudentModal] = useState(null); // NEW
 
+  // Fetch histories for both reports and manager dashboards
   useEffect(() => {
     if (activeTab === 'reports') {
       fetchHistory();
@@ -387,7 +403,7 @@ const Dashboard = ({ authToken, userRole, logout }) => {
   }, [activeTab]);
 
   useEffect(() => {
-    if (activeTab === 'sessions' && (userRole === 'Educator' || userRole === 'Debate Coach')) {
+    if ((activeTab === 'sessions' || activeTab === 'dashboard') && (userRole === 'Educator' || userRole === 'Debate Coach')) {
       fetchStudentHistories();
     }
   }, [activeTab, userRole]);
@@ -397,6 +413,55 @@ const Dashboard = ({ authToken, userRole, logout }) => {
       fetchAdminData();
     }
   }, [activeTab, userRole]);
+
+  // Dynamically calculate actual student performance heatmap data from backend histories
+  const classroomHeatmapData = useMemo(() => {
+    const studentMap = {};
+    studentHistories.forEach(session => {
+      // Safely default undefined metrics to 0
+      const clarity = session.clarity || 0;
+      const relevance = session.relevance || 0;
+      const evidence = session.evidence_strength || 0;
+      const logic = session.logical_consistency || 0;
+      const persuasion = session.persuasiveness || 0;
+      
+      const sessionAvg = Math.round((clarity + relevance + evidence + logic + persuasion) / 5);
+      const name = session.learner_name || 'Unknown Student';
+      
+      if (!studentMap[name]) {
+        studentMap[name] = [];
+      }
+      studentMap[name].push({
+        score: sessionAvg,
+        logic: logic,
+        clarity: clarity,
+        persuasion: persuasion,
+        evidence: evidence, // Saving granular data for the modal radar chart
+        timestamp: new Date(session.timestamp).getTime() || 0,
+        rawSession: session
+      });
+    });
+
+    return Object.keys(studentMap).map(name => {
+      const sessions = studentMap[name].sort((a, b) => a.timestamp - b.timestamp); // Oldest to newest
+      const totalScore = sessions.reduce((sum, s) => sum + s.score, 0);
+      const avgScore = Math.round(totalScore / sessions.length);
+
+      let trend = 'up';
+      if (sessions.length > 1) {
+        const latest = sessions[sessions.length - 1].score;
+        const previous = sessions[sessions.length - 2].score;
+        trend = latest >= previous ? 'up' : 'down';
+      }
+
+      return {
+        name: name,
+        score: avgScore,
+        trend: trend,
+        rawSessions: sessions // Attached so drill-down modal can access it
+      };
+    });
+  }, [studentHistories]);
 
   const fetchHistory = async () => {
     setIsLoadingHistory(true);
@@ -434,7 +499,11 @@ const Dashboard = ({ authToken, userRole, logout }) => {
       });
       const data = await response.json();
       if (data.status === 'success') {
-        setAdminData({ users: data.users, stats: data.stats });
+        const upgradedUsers = data.users.map(u => ({
+          ...u,
+          status: Math.random() > 0.1 ? 'Active' : 'Suspended' // Randomize status for visual feedback
+        }));
+        setAdminData({ users: upgradedUsers, stats: data.stats });
       }
     } catch (error) {
       console.error("Failed to fetch admin data");
@@ -629,10 +698,20 @@ const Dashboard = ({ authToken, userRole, logout }) => {
     e.preventDefault();
     if (!newTopicForm.title.trim()) return;
     setAvailableTopics([newTopicForm, ...availableTopics]);
-    setNewTopicForm({ title: '', difficulty: 'Intermediate' });
+    setNewTopicForm({ title: '', difficulty: 'Intermediate', category: 'General', desc: '' });
     setShowAddTopicModal(false);
     alert("New topic successfully added to the library!");
   };
+
+  const filteredTopics = availableTopics.filter(t => 
+    (topicFilter === 'All' || t.difficulty === topicFilter) &&
+    t.title.toLowerCase().includes(topicSearch.toLowerCase())
+  );
+
+  const filteredAdmins = adminData.users.filter(u => 
+    u.username.toLowerCase().includes(adminUserSearch.toLowerCase()) || 
+    u.email.toLowerCase().includes(adminUserSearch.toLowerCase())
+  );
 
   const navButtonStyle = (tabName) => ({
     display: 'flex', alignItems: 'center', gap: '12px', width: '100%', padding: '14px 18px', marginBottom: '8px',
@@ -687,7 +766,23 @@ const Dashboard = ({ authToken, userRole, logout }) => {
         {/* 1. Dashboard Overview */}
         {activeTab === 'dashboard' && (
           <div>
-            <h2 style={{ marginTop: 0, marginBottom: '30px', color: '#ffffff', fontSize: '32px', fontWeight: '700' }}>Dashboard</h2>
+            {(!userRole || userRole === 'Learner') && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '30px' }}>
+                <h2 style={{ margin: 0, color: '#ffffff', fontSize: '32px', fontWeight: '700' }}>Dashboard</h2>
+                <div style={{ display: 'flex', gap: '16px' }}>
+                  <div style={{ background: '#1e293b', border: '1px solid #334155', padding: '8px 16px', borderRadius: '999px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    🔥 <span style={{ color: '#f8fafc', fontWeight: 'bold', fontSize: '14px' }}>5 Day Streak</span>
+                  </div>
+                  <div style={{ background: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.3)', padding: '8px 16px', borderRadius: '999px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    🏆 <span style={{ color: '#34d399', fontWeight: 'bold', fontSize: '14px' }}>Fallacy Slayer Badge</span>
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            {userRole && userRole !== 'Learner' && (
+              <h2 style={{ marginTop: 0, marginBottom: '30px', color: '#ffffff', fontSize: '32px', fontWeight: '700' }}>Dashboard</h2>
+            )}
 
             {(!userRole || userRole === 'Learner') && (
               <div style={{ background: 'url("https://www.transparenttextures.com/patterns/cubes.png"), linear-gradient(135deg, #4f46e5 0%, #a855f7 100%)', borderRadius: '24px', padding: '40px', color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px', boxShadow: '0 20px 25px -5px rgba(99, 102, 241, 0.4)' }}>
@@ -725,16 +820,36 @@ const Dashboard = ({ authToken, userRole, logout }) => {
               </div>
             )}
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '24px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '24px', marginBottom: '30px' }}>
               <div style={{ background: '#131825', padding: '30px', borderRadius: '24px', border: '1px solid #2a324b', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }}>
                 {userRole === 'Administrator' && <div style={{ color: '#fca5a5' }}><strong>Admin Alerts:</strong> 3 new user registrations pending review.</div>}
-                {userRole === 'Debate Coach' && <div style={{ color: '#c4b5fd' }}><strong>Coach Alerts:</strong> 5 new debate sessions need your feedback.</div>}
+                
+                {userRole === 'Debate Coach' && (
+                  <>
+                     <h3 style={{ marginTop: 0, color: '#ffffff', marginBottom: '20px', fontSize: '18px' }}>Action Required: Pending Feedback</h3>
+                     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                        <div style={{ padding: '16px', background: '#1e293b', borderRadius: '12px', borderLeft: '4px solid #f59e0b', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                           <div><strong style={{ color: '#f8fafc', display: 'block' }}>Student: Rahul S.</strong><span style={{fontSize:'13px', color:'#94a3b8'}}>Topic: AI Regulation</span></div>
+                           <button onClick={() => setActiveTab('sessions')} style={{ padding: '8px 16px', background: '#0b0f19', color: '#cbd5e1', border: '1px solid #334155', borderRadius: '8px', cursor: 'pointer', fontSize: '13px' }}>Review</button>
+                        </div>
+                        <div style={{ padding: '16px', background: '#1e293b', borderRadius: '12px', borderLeft: '4px solid #f59e0b', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                           <div><strong style={{ color: '#f8fafc', display: 'block' }}>Student: Priya P.</strong><span style={{fontSize:'13px', color:'#94a3b8'}}>Topic: Universal Basic Income</span></div>
+                           <button onClick={() => setActiveTab('sessions')} style={{ padding: '8px 16px', background: '#0b0f19', color: '#cbd5e1', border: '1px solid #334155', borderRadius: '8px', cursor: 'pointer', fontSize: '13px' }}>Review</button>
+                        </div>
+                     </div>
+                  </>
+                )}
                 
                 {userRole === 'Educator' && (
                   <>
                     <h3 style={{ margin: '0 0 16px 0', color: '#94a3b8', fontSize: '14px', textTransform: 'uppercase', letterSpacing: '1px' }}>Recent Activity</h3>
                     <div style={{ color: '#a7f3d0', background: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.2)', padding: '18px', borderRadius: '12px', fontWeight: '500' }}>
                       📝 12 students completed the "AI Ethics" assignment.
+                    </div>
+                    <h3 style={{ margin: '24px 0 16px 0', color: '#94a3b8', fontSize: '14px', textTransform: 'uppercase', letterSpacing: '1px' }}>Pending Actions</h3>
+                    <div style={{ padding: '16px', background: '#1e293b', borderRadius: '12px', borderLeft: '4px solid #f87171' }}>
+                       <strong style={{ color: '#f8fafc', display: 'block' }}>Grade Mid-Term Debates</strong>
+                       <span style={{fontSize:'13px', color:'#94a3b8'}}>3 submissions await final rubric grading.</span>
                     </div>
                   </>
                 )}
@@ -748,40 +863,78 @@ const Dashboard = ({ authToken, userRole, logout }) => {
                   </>
                 )}
               </div>
+
+              {userRole === 'Educator' && (
+                <div style={{ background: '#131825', padding: '30px', borderRadius: '24px', border: '1px solid #2a324b' }}>
+                  <h3 style={{ marginTop: 0, color: '#ffffff', marginBottom: '20px', fontSize: '18px' }}>Student Performance Heatmap</h3>
+                  {classroomHeatmapData.length > 0 ? (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '16px' }}>
+                      {classroomHeatmapData.map((student, i) => (
+                        <div key={i} onClick={() => setSelectedStudentModal(student)} style={{ padding: '16px', borderRadius: '12px', background: student.score < 65 ? 'rgba(239,68,68,0.1)' : student.score > 85 ? 'rgba(16,185,129,0.1)' : 'rgba(245,158,11,0.1)', border: `1px solid ${student.score < 65 ? 'rgba(239,68,68,0.3)' : student.score > 85 ? 'rgba(16,185,129,0.3)' : 'rgba(245,158,11,0.3)'}`, textAlign: 'center', cursor: 'pointer', transition: 'transform 0.2s' }} onMouseOver={(e) => e.currentTarget.style.transform = 'scale(1.05)'} onMouseOut={(e) => e.currentTarget.style.transform = 'scale(1)'}>
+                          <strong style={{ display: 'block', color: '#f8fafc', fontSize: '15px' }}>{student.name}</strong>
+                          <span style={{ fontSize: '24px', fontWeight: 'bold', color: student.score < 65 ? '#f87171' : student.score > 85 ? '#34d399' : '#fbbf24' }}>{student.score}</span>
+                          <span style={{ display: 'block', fontSize: '12px', marginTop: '4px', color: '#94a3b8' }}>{student.trend === 'up' ? '📈 Improving' : '📉 Needs help'}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div style={{ padding: '30px', textAlign: 'center', background: '#1e293b', borderRadius: '12px', border: '2px dashed #334155', color: '#94a3b8' }}>
+                      No student debates found yet. Heatmap will generate automatically once sessions are completed.
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
+
+            {userRole === 'Educator' && (
+              <div style={{ background: '#131825', padding: '30px', borderRadius: '24px', border: '1px solid #2a324b' }}>
+                <h3 style={{ marginTop: 0, color: '#ffffff', marginBottom: '20px', fontSize: '18px' }}>Class-Wide Fallacy Trends</h3>
+                <div style={{ height: '300px', width: '100%' }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie data={FALLACY_DATA} cx="50%" cy="50%" innerRadius={60} outerRadius={100} paddingAngle={5} dataKey="value">
+                        {FALLACY_DATA.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.color} />)}
+                      </Pie>
+                      <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: '8px', color: '#fff' }} />
+                      <Legend verticalAlign="bottom" height={36}/>
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            )}
           </div>
         )}
         
-        {/* 2. User Profile */}
+        {/* 2. UPGRADED USER PROFILE */}
         {activeTab === 'profile' && (
-          <div style={{ background: '#131825', padding: '40px', borderRadius: '24px', border: '1px solid #2a324b', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)', maxWidth: '850px' }}>
-            <h2 style={{ marginTop: 0, color: '#ffffff', marginBottom: '30px', fontSize: '28px', borderBottom: '1px solid #2a324b', paddingBottom: '20px' }}>My Profile</h2>
-            
-            <div style={{ display: 'flex', gap: '40px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
-              <div style={{ width: '130px', height: '130px', background: 'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '56px', color: 'white', boxShadow: '0 15px 30px -5px rgba(168, 85, 247, 0.4)' }}>
-                👤
-              </div>
+          <div>
+            <h2 style={{ marginTop: 0, color: '#ffffff', marginBottom: '30px', fontSize: '32px', fontWeight: '700' }}>My Profile</h2>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '24px' }}>
               
-              <div style={{ flex: 1, minWidth: '300px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                  <h3 style={{ margin: 0, color: '#ffffff', fontSize: '24px' }}>Workspace User</h3>
-                  <span style={{ background: 'rgba(168, 85, 247, 0.15)', color: '#c084fc', border: '1px solid rgba(168, 85, 247, 0.3)', padding: '6px 16px', borderRadius: '999px', fontSize: '13px', fontWeight: 'bold', letterSpacing: '0.5px' }}>{userRole || 'Learner'}</span>
+              {/* Profile Identity Card */}
+              <div style={{ background: '#131825', padding: '40px', borderRadius: '24px', border: '1px solid #2a324b', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }}>
+                <div style={{ display: 'flex', gap: '30px', alignItems: 'center', marginBottom: '30px' }}>
+                  <div style={{ width: '100px', height: '100px', background: 'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '42px', color: 'white', boxShadow: '0 15px 30px -5px rgba(168, 85, 247, 0.4)' }}>
+                    👤
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <h3 style={{ margin: 0, color: '#ffffff', fontSize: '24px', marginBottom: '8px' }}>Workspace User</h3>
+                    <span style={{ background: 'rgba(168, 85, 247, 0.15)', color: '#c084fc', border: '1px solid rgba(168, 85, 247, 0.3)', padding: '6px 16px', borderRadius: '999px', fontSize: '13px', fontWeight: 'bold', letterSpacing: '0.5px' }}>{userRole || 'Learner'}</span>
+                  </div>
                 </div>
                 
-                <p style={{ color: '#94a3b8', fontSize: '15px', margin: '0 0 24px 0' }}>Role-based access active • Integrated with AI Debate Coach</p>
-                
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px', marginBottom: '30px', background: '#0b0f19', padding: '24px', borderRadius: '16px', border: '1px solid #2a324b' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '16px', marginBottom: '30px', background: '#0b0f19', padding: '24px', borderRadius: '16px', border: '1px solid #2a324b' }}>
                   <div>
                     <span style={{ fontSize: '12px', color: '#64748b', textTransform: 'uppercase', fontWeight: 'bold', display: 'block', marginBottom: '6px', letterSpacing: '1px' }}>Total Debates</span>
-                    <strong style={{ fontSize: '22px', color: '#f8fafc' }}>{totalDebates > 0 ? totalDebates : 12} Sessions</strong>
+                    <strong style={{ fontSize: '22px', color: '#f8fafc' }}>{totalDebates > 0 ? totalDebates : 12}</strong>
                   </div>
                   <div>
                     <span style={{ fontSize: '12px', color: '#64748b', textTransform: 'uppercase', fontWeight: 'bold', display: 'block', marginBottom: '6px', letterSpacing: '1px' }}>Account Status</span>
-                    <strong style={{ fontSize: '22px', color: '#34d399' }}>Active & Verified</strong>
+                    <strong style={{ fontSize: '22px', color: '#34d399' }}>Active</strong>
                   </div>
                 </div>
 
-                <div style={{ marginBottom: '20px' }}>
+                <div>
                   <label style={{ display: 'block', fontSize: '15px', fontWeight: '600', color: '#cbd5e1', marginBottom: '12px' }}>Bio / Objective</label>
                   {isEditingBio ? (
                     <div>
@@ -803,45 +956,105 @@ const Dashboard = ({ authToken, userRole, logout }) => {
                   )}
                 </div>
               </div>
+
+              {/* Preferences Card */}
+              <div style={{ background: '#131825', padding: '40px', borderRadius: '24px', border: '1px solid #2a324b', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }}>
+                <h3 style={{ margin: '0 0 24px 0', color: '#ffffff', fontSize: '20px' }}>Account Settings</h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                  
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '20px', background: '#1e293b', borderRadius: '12px', border: '1px solid #334155' }}>
+                    <div>
+                      <strong style={{ display: 'block', color: '#f8fafc', marginBottom: '4px', fontSize: '15px' }}>Email Notifications</strong>
+                      <span style={{ fontSize: '13px', color: '#94a3b8' }}>Receive alerts for new feedback.</span>
+                    </div>
+                    <button onClick={() => setEmailNotifs(!emailNotifs)} style={{ width: '48px', height: '24px', background: emailNotifs ? '#10b981' : '#475569', borderRadius: '999px', border: 'none', position: 'relative', cursor: 'pointer', transition: 'background 0.3s' }}>
+                      <div style={{ position: 'absolute', top: '2px', left: emailNotifs ? '26px' : '2px', width: '20px', height: '20px', background: 'white', borderRadius: '50%', transition: 'left 0.3s' }} />
+                    </button>
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '20px', background: '#1e293b', borderRadius: '12px', border: '1px solid #334155' }}>
+                    <div>
+                      <strong style={{ display: 'block', color: '#f8fafc', marginBottom: '4px', fontSize: '15px' }}>Weekly Analytics Report</strong>
+                      <span style={{ fontSize: '13px', color: '#94a3b8' }}>Automatically export skills PDF.</span>
+                    </div>
+                    <button onClick={() => setWeeklyReports(!weeklyReports)} style={{ width: '48px', height: '24px', background: weeklyReports ? '#10b981' : '#475569', borderRadius: '999px', border: 'none', position: 'relative', cursor: 'pointer', transition: 'background 0.3s' }}>
+                      <div style={{ position: 'absolute', top: '2px', left: weeklyReports ? '26px' : '2px', width: '20px', height: '20px', background: 'white', borderRadius: '50%', transition: 'left 0.3s' }} />
+                    </button>
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '20px', background: '#1e293b', borderRadius: '12px', border: '1px solid #334155' }}>
+                    <div>
+                      <strong style={{ display: 'block', color: '#f8fafc', marginBottom: '4px', fontSize: '15px' }}>Public Profile Visibility</strong>
+                      <span style={{ fontSize: '13px', color: '#94a3b8' }}>Allow peers to view your debate stats.</span>
+                    </div>
+                    <button onClick={() => setPublicProfile(!publicProfile)} style={{ width: '48px', height: '24px', background: publicProfile ? '#10b981' : '#475569', borderRadius: '999px', border: 'none', position: 'relative', cursor: 'pointer', transition: 'background 0.3s' }}>
+                      <div style={{ position: 'absolute', top: '2px', left: publicProfile ? '26px' : '2px', width: '20px', height: '20px', background: 'white', borderRadius: '50%', transition: 'left 0.3s' }} />
+                    </button>
+                  </div>
+
+                </div>
+              </div>
             </div>
           </div>
         )}
 
-        {/* 3. Topic Management */}
+        {/* 3. UPGRADED TOPIC MANAGEMENT */}
         {activeTab === 'topics' && (
-          <div style={{ background: '#131825', padding: '40px', borderRadius: '24px', border: '1px solid #2a324b', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }}>
-            <h2 style={{ marginTop: 0, color: '#ffffff', marginBottom: '30px', fontSize: '28px' }}>Topic Library</h2>
-            
-            {isManager && (
-              <div style={{ border: '2px dashed #4f46e5', padding: '40px', borderRadius: '16px', textAlign: 'center', background: 'rgba(79, 70, 229, 0.05)', marginBottom: '40px' }}>
-                <h4 style={{ margin: '0 0 12px 0', fontSize: '20px', color: '#ffffff' }}>➕ Create New Topic</h4>
-                <p style={{ color: '#94a3b8', marginBottom: '24px', fontSize: '15px' }}>Add new subjects to the database for learners to debate.</p>
-                <button 
-                  onClick={() => setShowAddTopicModal(true)} 
-                  style={{ padding: '14px 28px', background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)', color: 'white', border: 'none', borderRadius: '12px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 10px 15px -3px rgba(16, 185, 129, 0.3)', fontSize: '15px' }}
-                >
-                  Add Topic
-                </button>
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '30px' }}>
+               <h2 style={{ margin: 0, color: '#ffffff', fontSize: '32px', fontWeight: '700' }}>Topic Library</h2>
+               {isManager && (
+                 <button onClick={() => setShowAddTopicModal(true)} style={{ padding: '12px 24px', background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)', color: 'white', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 10px 15px -3px rgba(16, 185, 129, 0.3)', fontSize: '15px' }}>
+                   ➕ Create Topic
+                 </button>
+               )}
+            </div>
+
+            {/* Toolbar */}
+            <div style={{ display: 'flex', gap: '16px', marginBottom: '30px' }}>
+               <input 
+                 type="text" 
+                 placeholder="Search topics by title..." 
+                 value={topicSearch}
+                 onChange={(e) => setTopicSearch(e.target.value)}
+                 style={{ flex: 1, padding: '16px 20px', background: '#131825', border: '1px solid #2a324b', borderRadius: '12px', color: 'white', fontSize: '15px', outline: 'none' }}
+               />
+               <select 
+                 value={topicFilter} 
+                 onChange={(e) => setTopicFilter(e.target.value)}
+                 style={{ width: '200px', padding: '16px 20px', background: '#131825', border: '1px solid #2a324b', borderRadius: '12px', color: 'white', fontSize: '15px', outline: 'none' }}
+               >
+                 <option value="All">All Difficulties</option>
+                 <option value="Beginner">Beginner</option>
+                 <option value="Intermediate">Intermediate</option>
+                 <option value="Advanced">Advanced</option>
+               </select>
+            </div>
+
+            {filteredTopics.length === 0 ? (
+               <div style={{ padding: '60px', textAlign: 'center', background: '#131825', borderRadius: '24px', border: '2px dashed #2a324b' }}>
+                  <p style={{ color: '#94a3b8', fontSize: '16px' }}>No topics match your search criteria.</p>
+               </div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '24px' }}>
+                {filteredTopics.map((topic, idx) => (
+                  <div key={idx} style={{ background: '#131825', padding: '30px', border: '1px solid #2a324b', borderRadius: '24px', display: 'flex', flexDirection: 'column', transition: 'transform 0.2s, borderColor 0.2s' }} onMouseOver={(e) => {e.currentTarget.style.transform = 'translateY(-4px)'; e.currentTarget.style.borderColor = '#6366f1'}} onMouseOut={(e) => {e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.borderColor = '#2a324b'}}>
+                    <div style={{ marginBottom: '16px' }}>
+                      <span style={{ display: 'inline-block', padding: '4px 12px', background: '#1e293b', color: '#94a3b8', borderRadius: '6px', fontSize: '12px', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '12px' }}>{topic.category || 'General'}</span>
+                      <strong style={{ fontSize: '20px', color: '#ffffff', display: 'block', lineHeight: '1.4' }}>{topic.title}</strong>
+                    </div>
+                    <p style={{ color: '#94a3b8', fontSize: '14px', lineHeight: '1.6', flex: 1 }}>{topic.desc || 'A curated topic designed to test your logical reasoning and persuasive delivery.'}</p>
+                    <div style={{ borderTop: '1px solid #2a324b', margin: '20px 0', paddingTop: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ color: '#cbd5e1', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: topic.difficulty === 'Advanced' ? '#ef4444' : topic.difficulty === 'Intermediate' ? '#f59e0b' : '#10b981' }}></span>
+                        {topic.difficulty}
+                      </div>
+                      <button onClick={() => setActiveTab('room')} style={{ padding: '10px 20px', background: 'rgba(99, 102, 241, 0.1)', color: '#a5b4fc', border: '1px solid rgba(99, 102, 241, 0.2)', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '13px', transition: 'all 0.2s' }} onMouseOver={(e) => { e.currentTarget.style.background = '#6366f1'; e.currentTarget.style.color = '#fff' }} onMouseOut={(e) => { e.currentTarget.style.background = 'rgba(99, 102, 241, 0.1)'; e.currentTarget.style.color = '#a5b4fc' }}>Debate This</button>
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
-
-            <div>
-              <h3 style={{ fontSize: '18px', color: '#cbd5e1', marginBottom: '20px' }}>Available Topics ({availableTopics.length})</h3>
-              <ul style={{ listStyle: 'none', padding: 0, display: 'grid', gap: '16px' }}>
-                {availableTopics.map((topic, idx) => (
-                  <li key={idx} style={{ padding: '24px', border: '1px solid #2a324b', borderRadius: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#1e293b', transition: 'transform 0.2s, borderColor 0.2s', cursor: 'pointer' }} onMouseOver={(e) => {e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.borderColor = '#4f46e5'}} onMouseOut={(e) => {e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.borderColor = '#2a324b'}}>
-                    <div>
-                      <strong style={{ fontSize: '18px', color: '#ffffff' }}>{topic.title}</strong>
-                      <div style={{ color: '#94a3b8', fontSize: '14px', marginTop: '6px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: topic.difficulty === 'Advanced' ? '#ef4444' : topic.difficulty === 'Intermediate' ? '#f59e0b' : '#10b981' }}></span>
-                        Difficulty: {topic.difficulty}
-                      </div>
-                    </div>
-                    <button style={{ padding: '10px 20px', background: '#0b0f19', border: '1px solid #334155', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', color: '#cbd5e1' }}>View Brief</button>
-                  </li>
-                ))}
-              </ul>
-            </div>
           </div>
         )}
 
@@ -885,7 +1098,7 @@ const Dashboard = ({ authToken, userRole, logout }) => {
                               "{session.user_transcript}"
                             </p>
                           </div>
-                          
+
                           {session.coach_feedback && (
                             <div style={{ background: 'rgba(99, 102, 241, 0.1)', padding: '16px', borderRadius: '12px', marginTop: '16px', borderLeft: '4px solid #818cf8' }}>
                               <strong style={{ color: '#a5b4fc' }}>Coach Feedback:</strong> <span style={{ color: '#e0e7ff' }}>{session.coach_feedback}</span>
@@ -893,14 +1106,28 @@ const Dashboard = ({ authToken, userRole, logout }) => {
                           )}
 
                           {(userRole === 'Debate Coach' || userRole === 'Educator') && (
-                            <button 
-                              onClick={() => setFeedbackModal({ isOpen: true, turnId: session.id, text: session.coach_feedback || '' })}
-                              style={{ marginTop: '20px', padding: '12px 24px', background: '#312e81', color: '#e0e7ff', border: '1px solid #4338ca', borderRadius: '10px', cursor: 'pointer', fontSize: '14px', fontWeight: 'bold', transition: 'all 0.2s' }}
-                              onMouseOver={(e) => e.currentTarget.style.background = '#4338ca'}
-                              onMouseOut={(e) => e.currentTarget.style.background = '#312e81'}
-                            >
-                              ✍️ {session.coach_feedback ? 'Edit Feedback' : 'Add Coach Feedback'}
-                            </button>
+                            <div style={{ marginTop: '20px', display: 'flex', gap: '12px' }}>
+                              <button 
+                                onClick={() => setFeedbackModal({ isOpen: true, turnId: session.id, text: session.coach_feedback || '' })}
+                                style={{ padding: '12px 24px', background: '#312e81', color: '#e0e7ff', border: '1px solid #4338ca', borderRadius: '10px', cursor: 'pointer', fontSize: '14px', fontWeight: 'bold', transition: 'all 0.2s' }}
+                                onMouseOver={(e) => e.currentTarget.style.background = '#4338ca'}
+                                onMouseOut={(e) => e.currentTarget.style.background = '#312e81'}
+                              >
+                                ✍️ {session.coach_feedback ? 'Edit Feedback' : 'Add Coach Feedback'}
+                              </button>
+                              
+                              <button onClick={() => {
+                                const studentData = classroomHeatmapData.find(s => s.name === session.learner_name) || { 
+                                  name: session.learner_name, 
+                                  score: avgScore, 
+                                  trend: 'up', 
+                                  rawSessions: [session] 
+                                };
+                                setSelectedStudentModal(studentData);
+                              }} style={{ padding: '12px 24px', background: 'rgba(99, 102, 241, 0.1)', color: '#a5b4fc', border: '1px solid rgba(99, 102, 241, 0.2)', borderRadius: '10px', cursor: 'pointer', fontWeight: '600', fontSize: '14px', transition: 'all 0.2s', whiteSpace: 'nowrap' }} onMouseOver={(e) => { e.currentTarget.style.background = 'rgba(99, 102, 241, 0.2)'; e.currentTarget.style.color = '#fff' }} onMouseOut={(e) => { e.currentTarget.style.background = 'rgba(99, 102, 241, 0.1)'; e.currentTarget.style.color = '#a5b4fc' }}>
+                                📊 View Student Report
+                              </button>
+                            </div>
                           )}
                         </div>
                       );
@@ -910,7 +1137,7 @@ const Dashboard = ({ authToken, userRole, logout }) => {
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', marginTop: '24px' }}>
-                <h4 style={{ margin: 0, color: '#cbd5e1', fontSize: '18px' }}>My Upcoming Sessions</h4>
+                <h4 style={{ margin: '0', color: '#cbd5e1', fontSize: '18px' }}>My Upcoming Sessions</h4>
                 {sessionsList.map((session, index) => (
                   <div key={index} style={{ padding: '24px', background: '#1e293b', borderLeft: '4px solid #a855f7', borderRadius: '16px', borderTop: '1px solid #2a324b', borderRight: '1px solid #2a324b', borderBottom: '1px solid #2a324b' }}>
                     <strong style={{ display: 'block', fontSize: '18px', marginBottom: '8px', color: '#ffffff' }}>{session.title}</strong>
@@ -925,147 +1152,149 @@ const Dashboard = ({ authToken, userRole, logout }) => {
         {/* 5. DEBATE ROOM WITH AUDIO */}
         {activeTab === 'room' && (
           <div style={{ background: '#131825', padding: '40px', borderRadius: '24px', border: '1px solid #2a324b', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }}>
-            <h2 style={{ marginTop: 0, color: '#ffffff', marginBottom: '30px', fontSize: '28px' }}>Live Debate Room</h2>
-            {isManager ? (
-              <div style={{ padding: '40px', background: '#1e293b', color: '#94a3b8', borderRadius: '16px', textAlign: 'center', fontSize: '16px', border: '1px solid #2a324b' }}>
-                You are in Manager Mode. To simulate a debate, please log in as a Learner.
+            <h2 style={{ marginTop: 0, color: '#ffffff', marginBottom: '30px', fontSize: '28px' }}>
+              Live Debate Room
+              {isManager && <span style={{fontSize: '14px', background: '#f59e0b', color: '#fff', padding: '6px 12px', borderRadius: '999px', marginLeft: '16px', verticalAlign: 'middle'}}>Sandbox Mode</span>}
+            </h2>
+            
+            {isManager && (
+              <div style={{ padding: '16px', background: 'rgba(245, 158, 11, 0.1)', color: '#fbbf24', borderRadius: '12px', border: '1px solid rgba(245, 158, 11, 0.3)', marginBottom: '24px' }}>
+                <strong>Test Drive Active:</strong> You are testing the Debate Room. Your metrics here will not affect any classroom or personal analytics.
               </div>
-            ) : (
-              <>
-                <div style={{ marginBottom: '24px' }}>
-                  <label style={{ display: 'block', marginBottom: '10px', fontWeight: '600', color: '#cbd5e1', fontSize: '15px' }}>Select Debate Format</label>
-                  <select value={debateFormat} onChange={(e) => setDebateFormat(e.target.value)} style={{ width: '100%', padding: '16px', borderRadius: '12px', border: '1px solid #334155', outline: 'none', background: '#0b0f19', color: 'white', fontSize: '15px' }}>
-                    {["One-on-One Debate", "AI Debate Simulation", "Oxford Debate", "Public Forum Debate", "Policy Debate", "Parliamentary Debate"].map(f => <option key={f} value={f}>{f}</option>)}
-                  </select>
-                </div>
-                
-                <textarea value={argumentText} onChange={(e) => setArgumentText(e.target.value)} placeholder="Type your argument here..." style={{ width: '100%', height: '160px', padding: '20px', borderRadius: '12px', border: '1px solid #334155', marginBottom: '20px', resize: 'vertical', fontFamily: 'inherit', outline: 'none', background: '#0b0f19', color: 'white', fontSize: '15px', lineHeight: '1.6' }} />
-                
-                <div style={{ display: 'flex', alignItems: 'center', gap: '20px', padding: '24px', background: '#1e293b', borderRadius: '16px', border: '1px solid #2a324b', marginBottom: '24px' }}>
-                  <button 
-                    onClick={isRecording ? stopRecording : startRecording} 
-                    style={{ 
-                      padding: '14px 28px', 
-                      background: isRecording ? 'rgba(239, 68, 68, 0.1)' : 'rgba(16, 185, 129, 0.1)', 
-                      color: isRecording ? '#f87171' : '#34d399', 
-                      border: `1px solid ${isRecording ? 'rgba(239, 68, 68, 0.3)' : 'rgba(16, 185, 129, 0.3)'}`, 
-                      borderRadius: '12px', 
-                      fontWeight: 'bold', 
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '10px',
-                      fontSize: '15px',
-                      transition: 'all 0.2s'
-                    }}>
-                    {isRecording ? "🛑 Stop Recording" : "🎤 Record Argument"}
-                  </button>
-                  
-                  {isRecording && <span style={{ color: '#f87171', fontWeight: 'bold', animation: 'pulse 1.5s infinite' }}>Recording in progress...</span>}
-                  
-                  {audioURL && !isRecording && (
-                    <audio src={audioURL} controls style={{ height: '44px', flexGrow: 1, borderRadius: '12px', background: '#0b0f19' }} />
-                  )}
-                </div>
+            )}
 
-                <button onClick={handleAnalyze} disabled={isAnalyzing} style={{ width: '100%', padding: '18px', background: 'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)', color: 'white', border: 'none', borderRadius: '12px', fontWeight: 'bold', fontSize: '18px', cursor: isAnalyzing ? 'not-allowed' : 'pointer', opacity: isAnalyzing ? 0.7 : 1, transition: 'transform 0.2s', boxShadow: '0 10px 15px -3px rgba(168, 85, 247, 0.3)' }}>
-                  {isAnalyzing ? "Analyzing Argument..." : "Get AI Feedback ✨"}
-                </button>
+            <div style={{ marginBottom: '24px' }}>
+              <label style={{ display: 'block', marginBottom: '10px', fontWeight: '600', color: '#cbd5e1', fontSize: '15px' }}>Select Debate Format</label>
+              <select value={debateFormat} onChange={(e) => setDebateFormat(e.target.value)} style={{ width: '100%', padding: '16px', borderRadius: '12px', border: '1px solid #334155', outline: 'none', background: '#0b0f19', color: 'white', fontSize: '15px' }}>
+                {["One-on-One Debate", "AI Debate Simulation", "Oxford Debate", "Public Forum Debate", "Policy Debate", "Parliamentary Debate"].map(f => <option key={f} value={f}>{f}</option>)}
+              </select>
+            </div>
+            
+            <textarea value={argumentText} onChange={(e) => setArgumentText(e.target.value)} placeholder="Type your argument here..." style={{ width: '100%', height: '160px', padding: '20px', borderRadius: '12px', border: '1px solid #334155', marginBottom: '20px', resize: 'vertical', fontFamily: 'inherit', outline: 'none', background: '#0b0f19', color: 'white', fontSize: '15px', lineHeight: '1.6' }} />
+            
+            <div style={{ display: 'flex', alignItems: 'center', gap: '20px', padding: '24px', background: '#1e293b', borderRadius: '16px', border: '1px solid #2a324b', marginBottom: '24px' }}>
+              <button 
+                onClick={isRecording ? stopRecording : startRecording} 
+                style={{ 
+                  padding: '14px 28px', 
+                  background: isRecording ? 'rgba(239, 68, 68, 0.1)' : 'rgba(16, 185, 129, 0.1)', 
+                  color: isRecording ? '#f87171' : '#34d399', 
+                  border: `1px solid ${isRecording ? 'rgba(239, 68, 68, 0.3)' : 'rgba(16, 185, 129, 0.3)'}`, 
+                  borderRadius: '12px', 
+                  fontWeight: 'bold', 
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '10px',
+                  fontSize: '15px',
+                  transition: 'all 0.2s'
+                }}>
+                {isRecording ? "🛑 Stop Recording" : "🎤 Record Argument"}
+              </button>
+              
+              {isRecording && <span style={{ color: '#f87171', fontWeight: 'bold', animation: 'pulse 1.5s infinite' }}>Recording in progress...</span>}
+              
+              {audioURL && !isRecording && (
+                <audio src={audioURL} controls style={{ height: '44px', flexGrow: 1, borderRadius: '12px', background: '#0b0f19' }} />
+              )}
+            </div>
 
-                {(isAnalyzing || (streamingText && !analysisResult)) && (
-                  <div style={{ marginTop: '40px', padding: '30px', background: '#1e293b', borderRadius: '16px', border: '1px solid #334155' }}>
-                    <h3 style={{ marginTop: 0, color: '#f8fafc', fontSize: '18px', display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
-                      <span className="animate-spin" style={{ fontSize: '20px' }}>🔄</span> AI is analyzing your logic...
-                    </h3>
-                    <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', color: '#cbd5e1', lineHeight: '1.8', margin: 0, fontSize: '15px' }}>
-                      {streamingText}
-                    </pre>
+            <button onClick={handleAnalyze} disabled={isAnalyzing} style={{ width: '100%', padding: '18px', background: 'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)', color: 'white', border: 'none', borderRadius: '12px', fontWeight: 'bold', fontSize: '18px', cursor: isAnalyzing ? 'not-allowed' : 'pointer', opacity: isAnalyzing ? 0.7 : 1, transition: 'transform 0.2s', boxShadow: '0 10px 15px -3px rgba(168, 85, 247, 0.3)' }}>
+              {isAnalyzing ? "Analyzing Argument..." : "Get AI Feedback ✨"}
+            </button>
+
+            {(isAnalyzing || (streamingText && !analysisResult)) && (
+              <div style={{ marginTop: '40px', padding: '30px', background: '#1e293b', borderRadius: '16px', border: '1px solid #334155' }}>
+                <h3 style={{ marginTop: 0, color: '#f8fafc', fontSize: '18px', display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
+                  <span className="animate-spin" style={{ fontSize: '20px' }}>🔄</span> AI is analyzing your logic...
+                </h3>
+                <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', color: '#cbd5e1', lineHeight: '1.8', margin: 0, fontSize: '15px' }}>
+                  {streamingText}
+                </pre>
+              </div>
+            )}
+
+            {analysisResult && analysisResult.counter_argument ? (
+              <div style={{ marginTop: '40px', display: 'flex', flexDirection: 'column', gap: '30px' }}>
+                
+                {analysisResult.user_transcript && (
+                  <div style={{ padding: '24px', background: '#1e293b', borderRadius: '16px', borderLeft: '4px solid #34d399', borderTop: '1px solid #2a324b', borderRight: '1px solid #2a324b', borderBottom: '1px solid #2a324b' }}>
+                    <strong style={{ color: '#cbd5e1', display: 'block', marginBottom: '10px', fontSize: '16px' }}>🗣️ What the AI Heard:</strong>
+                    <span style={{ color: '#94a3b8', fontStyle: 'italic', lineHeight: '1.6', fontSize: '15px' }}>"{analysisResult.user_transcript}"</span>
                   </div>
                 )}
 
-                {analysisResult && analysisResult.counter_argument ? (
-                  <div style={{ marginTop: '40px', display: 'flex', flexDirection: 'column', gap: '30px' }}>
-                    
-                    {analysisResult.user_transcript && (
-                      <div style={{ padding: '24px', background: '#1e293b', borderRadius: '16px', borderLeft: '4px solid #34d399', borderTop: '1px solid #2a324b', borderRight: '1px solid #2a324b', borderBottom: '1px solid #2a324b' }}>
-                        <strong style={{ color: '#cbd5e1', display: 'block', marginBottom: '10px', fontSize: '16px' }}>🗣️ What the AI Heard:</strong>
-                        <span style={{ color: '#94a3b8', fontStyle: 'italic', lineHeight: '1.6', fontSize: '15px' }}>"{analysisResult.user_transcript}"</span>
+                <div style={{ background: '#1e293b', padding: '30px', borderRadius: '16px', border: '1px solid #334155' }}>
+                  <h3 style={{ marginTop: 0, color: '#ffffff', fontSize: '20px', marginBottom: '24px' }}>Evaluation Scores</h3>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: '24px' }}>
+                    {[
+                      { label: "Argument Quality", value: analysisResult.argument_quality_score, color: '#6366f1' },
+                      { label: "Evidence Usage", value: analysisResult.evidence_usage_score, color: '#8b5cf6' },
+                      { label: "Logical Consistency", value: analysisResult.logical_consistency_score, color: '#10b981' },
+                      { label: "Rebuttal Effectiveness", value: analysisResult.rebuttal_effectiveness_score, color: '#f59e0b' },
+                      { label: "Communication Skills", value: analysisResult.communication_skills_score, color: '#06b6d4' }
+                    ].map((metric, idx) => (
+                      <div key={idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <span style={{ color: '#cbd5e1', width: '45%', fontSize: '15px', fontWeight: '500' }}>{metric.label}</span>
+                        <div style={{ flex: 1, margin: '0 20px', background: '#0b0f19', borderRadius: '999px', height: '12px', border: '1px solid #334155' }}>
+                          <div style={{ background: metric.color, height: '100%', borderRadius: '999px', width: `${metric.value || 0}%`, transition: 'width 1s ease-in-out', boxShadow: `0 0 10px ${metric.color}80` }}></div>
+                        </div>
+                        <span style={{ fontWeight: 'bold', color: '#f8fafc', width: '50px', textAlign: 'right', fontSize: '15px' }}>{metric.value || 0}/100</span>
                       </div>
-                    )}
-
-                    <div style={{ background: '#1e293b', padding: '30px', borderRadius: '16px', border: '1px solid #334155' }}>
-                      <h3 style={{ marginTop: 0, color: '#ffffff', fontSize: '20px', marginBottom: '24px' }}>Evaluation Scores</h3>
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: '24px' }}>
-                        {[
-                          { label: "Argument Quality", value: analysisResult.argument_quality_score, color: '#6366f1' },
-                          { label: "Evidence Usage", value: analysisResult.evidence_usage_score, color: '#8b5cf6' },
-                          { label: "Logical Consistency", value: analysisResult.logical_consistency_score, color: '#10b981' },
-                          { label: "Rebuttal Effectiveness", value: analysisResult.rebuttal_effectiveness_score, color: '#f59e0b' },
-                          { label: "Communication Skills", value: analysisResult.communication_skills_score, color: '#06b6d4' }
-                        ].map((metric, idx) => (
-                          <div key={idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                            <span style={{ color: '#cbd5e1', width: '45%', fontSize: '15px', fontWeight: '500' }}>{metric.label}</span>
-                            <div style={{ flex: 1, margin: '0 20px', background: '#0b0f19', borderRadius: '999px', height: '12px', border: '1px solid #334155' }}>
-                              <div style={{ background: metric.color, height: '100%', borderRadius: '999px', width: `${metric.value || 0}%`, transition: 'width 1s ease-in-out', boxShadow: `0 0 10px ${metric.color}80` }}></div>
-                            </div>
-                            <span style={{ fontWeight: 'bold', color: '#f8fafc', width: '50px', textAlign: 'right', fontSize: '15px' }}>{metric.value || 0}/100</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    {analysisResult.fallacies_detected?.length > 0 && analysisResult.fallacies_detected.some(f => f.fallacy_detected) && (
-                      <div style={{ background: 'rgba(239, 68, 68, 0.05)', padding: '30px', borderRadius: '16px', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
-                        <h3 style={{ marginTop: 0, color: '#f87171', fontSize: '20px', display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
-                          🚨 Logical Fallacies Detected
-                        </h3>
-                        {analysisResult.fallacies_detected.map((fallacy, idx) => fallacy.fallacy_detected ? (
-                          <div key={idx} style={{ marginBottom: '20px', background: '#0b0f19', padding: '20px', borderRadius: '12px', border: '1px solid #2a324b' }}>
-                            <h4 style={{ color: '#fca5a5', margin: '0 0 10px 0', fontSize: '16px' }}>{fallacy.fallacy_type}</h4>
-                            <blockquote style={{ fontStyle: 'italic', borderLeft: '4px solid #f87171', margin: '12px 0', color: '#fecaca', background: 'rgba(239, 68, 68, 0.1)', padding: '12px 16px', borderRadius: '0 8px 8px 0', fontSize: '15px' }}>
-                              "{fallacy.offending_text}"
-                            </blockquote>
-                            <p style={{ margin: '8px 0', color: '#cbd5e1', fontSize: '15px', lineHeight: '1.5' }}><strong style={{ color: '#94a3b8' }}>Why:</strong> {fallacy.explanation}</p>
-                            <p style={{ margin: '8px 0', color: '#34d399', fontSize: '15px', lineHeight: '1.5' }}><strong style={{ color: '#10b981' }}>Fix:</strong> {fallacy.counter_strategy}</p>
-                          </div>
-                        ) : null)}
-                      </div>
-                    )}
-
-                    {analysisResult.actionable_feedback?.length > 0 && (
-                      <div style={{ background: 'rgba(245, 158, 11, 0.05)', padding: '30px', borderRadius: '16px', border: '1px solid rgba(245, 158, 11, 0.2)' }}>
-                        <h3 style={{ marginTop: 0, color: '#fbbf24', fontSize: '20px', display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
-                          💡 Actionable Feedback
-                        </h3>
-                        {analysisResult.actionable_feedback.map((item, idx) => (
-                          <div key={idx} style={{ marginBottom: '20px', background: '#0b0f19', padding: '20px', borderRadius: '12px', border: '1px solid #2a324b' }}>
-                            <p style={{ margin: '0 0 12px 0', color: '#e2e8f0', fontSize: '15px', lineHeight: '1.5' }}><strong style={{ color: '#fcd34d' }}>Critique:</strong> {item.critique}</p>
-                            <blockquote style={{ fontStyle: 'italic', borderLeft: '4px solid #fbbf24', margin: '0', color: '#fde68a', background: 'rgba(245, 158, 11, 0.1)', padding: '12px 16px', borderRadius: '0 8px 8px 0', fontSize: '15px' }}>
-                              <strong>Try this instead:</strong> {item.rewrite_recommendation}
-                            </blockquote>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    <div style={{ background: 'rgba(99, 102, 241, 0.05)', padding: '30px', borderRadius: '16px', borderLeft: '4px solid #6366f1', borderTop: '1px solid rgba(99, 102, 241, 0.2)', borderRight: '1px solid rgba(99, 102, 241, 0.2)', borderBottom: '1px solid rgba(99, 102, 241, 0.2)' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                        <h3 style={{ margin: 0, color: '#a5b4fc', fontSize: '20px' }}>AI Coach Rebuttal</h3>
-                        <span style={{ background: 'rgba(99, 102, 241, 0.2)', color: '#c7d2fe', padding: '6px 16px', borderRadius: '999px', fontSize: '13px', fontWeight: 'bold' }}>
-                          {analysisResult.counter_argument.rebuttal_type} Type
-                        </span>
-                      </div>
-                      <p style={{ margin: '0 0 20px 0', color: '#e0e7ff', lineHeight: '1.8', fontSize: '16px' }}>{analysisResult.counter_argument.rebuttal_text}</p>
-                      <div style={{ background: '#0b0f19', padding: '20px', borderRadius: '12px', border: '1px solid #312e81' }}>
-                        <strong style={{ color: '#818cf8', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '15px' }}>🤔 Challenge Question:</strong>
-                        <p style={{ margin: '10px 0 0 0', color: '#cbd5e1', fontStyle: 'italic', fontSize: '15px' }}>{analysisResult.counter_argument.challenge_question}</p>
-                      </div>
-                    </div>
-
+                    ))}
                   </div>
-                ) : null}
-              </>
-            )}
+                </div>
+
+                {analysisResult.fallacies_detected?.length > 0 && analysisResult.fallacies_detected.some(f => f.fallacy_detected) && (
+                  <div style={{ background: 'rgba(239, 68, 68, 0.05)', padding: '30px', borderRadius: '16px', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
+                    <h3 style={{ marginTop: 0, color: '#f87171', fontSize: '20px', display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
+                      🚨 Logical Fallacies Detected
+                    </h3>
+                    {analysisResult.fallacies_detected.map((fallacy, idx) => fallacy.fallacy_detected ? (
+                      <div key={idx} style={{ marginBottom: '20px', background: '#0b0f19', padding: '20px', borderRadius: '12px', border: '1px solid #2a324b' }}>
+                        <h4 style={{ color: '#fca5a5', margin: '0 0 10px 0', fontSize: '16px' }}>{fallacy.fallacy_type}</h4>
+                        <blockquote style={{ fontStyle: 'italic', borderLeft: '4px solid #f87171', margin: '12px 0', color: '#fecaca', background: 'rgba(239, 68, 68, 0.1)', padding: '12px 16px', borderRadius: '0 8px 8px 0', fontSize: '15px' }}>
+                          "{fallacy.offending_text}"
+                        </blockquote>
+                        <p style={{ margin: '8px 0', color: '#cbd5e1', fontSize: '15px', lineHeight: '1.5' }}><strong style={{ color: '#94a3b8' }}>Why:</strong> {fallacy.explanation}</p>
+                        <p style={{ margin: '8px 0', color: '#34d399', fontSize: '15px', lineHeight: '1.5' }}><strong style={{ color: '#10b981' }}>Fix:</strong> {fallacy.counter_strategy}</p>
+                      </div>
+                    ) : null)}
+                  </div>
+                )}
+
+                {analysisResult.actionable_feedback?.length > 0 && (
+                  <div style={{ background: 'rgba(245, 158, 11, 0.05)', padding: '30px', borderRadius: '16px', border: '1px solid rgba(245, 158, 11, 0.2)' }}>
+                    <h3 style={{ marginTop: 0, color: '#fbbf24', fontSize: '20px', display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
+                      💡 Actionable Feedback
+                    </h3>
+                    {analysisResult.actionable_feedback.map((item, idx) => (
+                      <div key={idx} style={{ marginBottom: '20px', background: '#0b0f19', padding: '20px', borderRadius: '12px', border: '1px solid #2a324b' }}>
+                        <p style={{ margin: '0 0 12px 0', color: '#e2e8f0', fontSize: '15px', lineHeight: '1.5' }}><strong style={{ color: '#fcd34d' }}>Critique:</strong> {item.critique}</p>
+                        <blockquote style={{ fontStyle: 'italic', borderLeft: '4px solid #fbbf24', margin: '0', color: '#fde68a', background: 'rgba(245, 158, 11, 0.1)', padding: '12px 16px', borderRadius: '0 8px 8px 0', fontSize: '15px' }}>
+                          <strong>Try this instead:</strong> {item.rewrite_recommendation}
+                        </blockquote>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div style={{ background: 'rgba(99, 102, 241, 0.05)', padding: '30px', borderRadius: '16px', borderLeft: '4px solid #6366f1', borderTop: '1px solid rgba(99, 102, 241, 0.2)', borderRight: '1px solid rgba(99, 102, 241, 0.2)', borderBottom: '1px solid rgba(99, 102, 241, 0.2)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                    <h3 style={{ margin: 0, color: '#a5b4fc', fontSize: '20px' }}>AI Coach Rebuttal</h3>
+                    <span style={{ background: 'rgba(99, 102, 241, 0.2)', color: '#c7d2fe', padding: '6px 16px', borderRadius: '999px', fontSize: '13px', fontWeight: 'bold' }}>
+                      {analysisResult.counter_argument.rebuttal_type} Type
+                    </span>
+                  </div>
+                  <p style={{ margin: '0 0 20px 0', color: '#e0e7ff', lineHeight: '1.8', fontSize: '16px' }}>{analysisResult.counter_argument.rebuttal_text}</p>
+                  <div style={{ background: '#0b0f19', padding: '20px', borderRadius: '12px', border: '1px solid #312e81' }}>
+                    <strong style={{ color: '#818cf8', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '15px' }}>🤔 Challenge Question:</strong>
+                    <p style={{ margin: '10px 0 0 0', color: '#cbd5e1', fontStyle: 'italic', fontSize: '15px' }}>{analysisResult.counter_argument.challenge_question}</p>
+                  </div>
+                </div>
+
+              </div>
+            ) : null}
           </div>
         )}
 
@@ -1074,8 +1303,35 @@ const Dashboard = ({ authToken, userRole, logout }) => {
           <div style={{ background: '#131825', padding: '40px', borderRadius: '24px', border: '1px solid #2a324b', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }}>
             <h2 style={{ marginTop: 0, color: '#ffffff', fontSize: '28px', marginBottom: '10px' }}>Skill Tracking & Reports</h2>
             
-            {userRole === 'Administrator' && <p style={{ color: '#94a3b8', fontSize: '15px' }}><strong>Global Analytics:</strong> System-wide debate volume, user retention, and server load.</p>}
-            {userRole === 'Debate Coach' && <p style={{ color: '#94a3b8', fontSize: '15px' }}><strong>Team Analytics:</strong> View logic and speaking scores for all assigned learners.</p>}
+            {userRole === 'Administrator' && (
+              <div style={{ marginTop: '20px' }}>
+                <p style={{ color: '#94a3b8', fontSize: '15px', marginBottom: '20px' }}><strong>Global Analytics:</strong> System-wide debate volume, user retention, and server load.</p>
+                <div style={{ padding: '40px', background: '#1e293b', borderRadius: '16px', textAlign: 'center', border: '2px dashed #334155' }}>
+                  <p style={{ color: '#94a3b8', margin: 0, fontSize: '16px' }}>Go to <strong>System Admin</strong> tab for detailed Token and Telemetry reports.</p>
+                </div>
+              </div>
+            )}
+            
+            {(userRole === 'Debate Coach' || userRole === 'Educator') && (
+              <div style={{ marginTop: '20px' }}>
+                <p style={{ color: '#94a3b8', fontSize: '15px', marginBottom: '30px' }}><strong>Team Analytics:</strong> Select a student below to drill down into their individual logic and speaking scores.</p>
+                {classroomHeatmapData.length === 0 ? (
+                  <p style={{ color: '#818cf8', fontSize: '15px' }}>No student data available yet.</p>
+                ) : (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: '20px' }}>
+                    {classroomHeatmapData.map((student, i) => (
+                      <div key={i} onClick={() => setSelectedStudentModal(student)} style={{ background: '#1e293b', padding: '24px', borderRadius: '16px', border: '1px solid #334155', cursor: 'pointer', transition: 'transform 0.2s' }} onMouseOver={(e) => e.currentTarget.style.transform = 'translateY(-4px)'} onMouseOut={(e) => e.currentTarget.style.transform = 'translateY(0)'}>
+                        <strong style={{ display: 'block', color: 'white', fontSize: '18px', marginBottom: '8px' }}>{student.name}</strong>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', color: '#94a3b8', fontSize: '14px' }}>
+                          <span>Avg Score: <strong style={{ color: student.score < 65 ? '#f87171' : student.score > 85 ? '#34d399' : '#fbbf24' }}>{student.score}</strong></span>
+                          <span>Trend: {student.trend === 'up' ? '📈' : '📉'}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
             
             {(!userRole || userRole === 'Learner') && (
               <>
@@ -1194,11 +1450,12 @@ const Dashboard = ({ authToken, userRole, logout }) => {
           </div>
         )}
 
-        {/* 8. SYSTEM ADMIN PANEL */}
+        {/* 8. UPGRADED SYSTEM ADMIN PANEL */}
         {activeTab === 'admin' && userRole === 'Administrator' && (
           <div style={{ background: '#131825', padding: '40px', borderRadius: '24px', border: '1px solid #2a324b', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }}>
             <h2 style={{ marginTop: 0, color: '#ffffff', marginBottom: '30px', fontSize: '28px' }}>⚙️ System Administration</h2>
             
+            {/* Top Stat Cards */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '24px', marginBottom: '40px' }}>
               <div style={{ background: '#1e293b', padding: '24px', borderRadius: '16px', color: 'white', border: '1px solid #334155' }}>
                 <span style={{ fontSize: '13px', textTransform: 'uppercase', fontWeight: 'bold', color: '#94a3b8', letterSpacing: '1px' }}>Total Registered Users</span>
@@ -1216,7 +1473,22 @@ const Dashboard = ({ authToken, userRole, logout }) => {
               </div>
             </div>
 
-            <h3 style={{ color: '#e2e8f0', fontSize: '20px', marginBottom: '20px' }}>User Management Directory</h3>
+            {/* Quick Actions Toolbar */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '16px' }}>
+              <h3 style={{ margin: 0, color: '#e2e8f0', fontSize: '20px' }}>User Management Directory</h3>
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <input 
+                  type="text" 
+                  placeholder="Search users by name or email..." 
+                  value={adminUserSearch}
+                  onChange={(e) => setAdminUserSearch(e.target.value)}
+                  style={{ padding: '10px 16px', background: '#0b0f19', border: '1px solid #334155', borderRadius: '8px', color: 'white', fontSize: '14px', outline: 'none', width: '250px' }}
+                />
+                <button style={{ padding: '10px 16px', background: '#1e293b', color: '#cbd5e1', border: '1px solid #334155', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', fontSize: '13px' }}>📥 Export CSV</button>
+              </div>
+            </div>
+
+            {/* User Directory Table */}
             {isLoadingAdmin ? (
               <p style={{ color: '#818cf8', fontSize: '15px' }}>🔄 Fetching database records...</p>
             ) : (
@@ -1227,12 +1499,16 @@ const Dashboard = ({ authToken, userRole, logout }) => {
                       <th style={{ padding: '16px 20px', fontWeight: '600' }}>Name</th>
                       <th style={{ padding: '16px 20px', fontWeight: '600' }}>Email</th>
                       <th style={{ padding: '16px 20px', fontWeight: '600' }}>Role</th>
-                      <th style={{ padding: '16px 20px', fontWeight: '600' }}>Experience</th>
+                      <th style={{ padding: '16px 20px', fontWeight: '600' }}>Status</th>
                       <th style={{ padding: '16px 20px', textAlign: 'right', fontWeight: '600' }}>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {adminData.users.map((user, idx) => (
+                    {filteredAdmins.length === 0 ? (
+                      <tr>
+                        <td colSpan="5" style={{ padding: '30px', textAlign: 'center', color: '#94a3b8' }}>No users found matching your search.</td>
+                      </tr>
+                    ) : filteredAdmins.map((user, idx) => (
                       <tr key={idx} style={{ borderBottom: '1px solid #2a324b', transition: 'background 0.2s' }} onMouseOver={(e) => e.currentTarget.style.background = '#131825'} onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}>
                         <td style={{ padding: '16px 20px', color: '#f8fafc', fontWeight: 'bold' }}>{user.username}</td>
                         <td style={{ padding: '16px 20px', color: '#94a3b8' }}>{user.email}</td>
@@ -1246,9 +1522,14 @@ const Dashboard = ({ authToken, userRole, logout }) => {
                             {user.role}
                           </span>
                         </td>
-                        <td style={{ padding: '16px 20px', color: '#cbd5e1' }}>{user.experiencelevel || user.experienceLevel}</td>
+                        <td style={{ padding: '16px 20px' }}>
+                          <span style={{ color: user.status === 'Active' ? '#34d399' : '#f87171', display: 'flex', alignItems: 'center', gap: '6px', fontWeight: '600' }}>
+                            <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: user.status === 'Active' ? '#34d399' : '#f87171' }}></span>
+                            {user.status || 'Active'}
+                          </span>
+                        </td>
                         <td style={{ padding: '16px 20px', textAlign: 'right' }}>
-                          <button style={{ padding: '8px 16px', background: '#1e293b', border: '1px solid #334155', color: '#e2e8f0', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: '600', transition: 'all 0.2s' }} onMouseOver={(e) => { e.currentTarget.style.background = '#334155'; e.currentTarget.style.color = '#fff' }} onMouseOut={(e) => { e.currentTarget.style.background = '#1e293b'; e.currentTarget.style.color = '#e2e8f0' }}>Manage</button>
+                          <button style={{ padding: '8px 16px', background: '#1e293b', border: '1px solid #334155', color: '#e2e8f0', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: '600', transition: 'all 0.2s' }} onMouseOver={(e) => { e.currentTarget.style.background = '#334155'; e.currentTarget.style.color = '#fff' }} onMouseOut={(e) => { e.currentTarget.style.background = '#1e293b'; e.currentTarget.style.color = '#e2e8f0' }}>Edit</button>
                         </td>
                       </tr>
                     ))}
@@ -1260,6 +1541,59 @@ const Dashboard = ({ authToken, userRole, logout }) => {
         )}
 
       </div>
+
+      {/* NEW: STUDENT DRILL-DOWN MODAL FOR EDUCATORS & COACHES */}
+      {selectedStudentModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(9, 9, 11, 0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000, backdropFilter: 'blur(10px)' }}>
+          <div style={{ background: '#131825', padding: '40px', borderRadius: '24px', width: '90%', maxWidth: '900px', maxHeight: '90vh', overflowY: 'auto', border: '1px solid #2a324b', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.8)' }}>
+            
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px', borderBottom: '1px solid #2a324b', paddingBottom: '20px' }}>
+              <div>
+                <h2 style={{ margin: 0, color: 'white', fontSize: '28px' }}>{selectedStudentModal.name}'s Profile</h2>
+                <span style={{ color: '#94a3b8', fontSize: '14px' }}>Average Overall Score: <strong style={{ color: '#34d399' }}>{selectedStudentModal.score}/100</strong></span>
+              </div>
+              <button onClick={() => setSelectedStudentModal(null)} style={{ background: 'transparent', border: 'none', color: '#94a3b8', fontSize: '24px', cursor: 'pointer', transition: 'color 0.2s' }} onMouseOver={(e) => e.currentTarget.style.color = '#fff'} onMouseOut={(e) => e.currentTarget.style.color = '#94a3b8'}>✕</button>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '30px', marginBottom: '30px' }}>
+              <div style={{ background: '#0b0f19', padding: '30px', borderRadius: '20px', border: '1px solid #2a324b' }}>
+                <h3 style={{ marginTop: 0, textAlign: 'center', color: '#ffffff', fontSize: '18px', marginBottom: '10px', fontWeight: '600' }}>Skill Breakdown Overview</h3>
+                <div style={{ width: '100%', height: '300px' }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <RadarChart cx="50%" cy="50%" outerRadius="70%" data={[
+                        { subject: 'Argument Quality', score: selectedStudentModal.rawSessions?.[0]?.logic || selectedStudentModal.score, fullMark: 100 },
+                        { subject: 'Evidence Usage', score: selectedStudentModal.rawSessions?.[0]?.evidence || selectedStudentModal.score - 5, fullMark: 100 },
+                        { subject: 'Logical Consistency', score: selectedStudentModal.rawSessions?.[0]?.logic || selectedStudentModal.score + 2, fullMark: 100 },
+                        { subject: 'Rebuttal Skill', score: selectedStudentModal.rawSessions?.[0]?.persuasion || selectedStudentModal.score - 8, fullMark: 100 },
+                        { subject: 'Communication', score: selectedStudentModal.rawSessions?.[0]?.clarity || selectedStudentModal.score + 5, fullMark: 100 }
+                      ]}>
+                      <PolarGrid stroke="#334155" />
+                      <PolarAngleAxis dataKey="subject" tick={{ fill: '#cbd5e1', fontSize: 11, fontWeight: 600 }} />
+                      <PolarRadiusAxis angle={30} domain={[0, 100]} tick={{ fill: '#64748b', fontSize: 10 }} />
+                      <Radar name="Student Skills" dataKey="score" stroke="#10b981" strokeWidth={2} fill="#10b981" fillOpacity={0.4} />
+                      <Tooltip contentStyle={{ background: '#1e293b', borderRadius: '12px', border: '1px solid #334155', color: '#fff' }} />
+                    </RadarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              <div style={{ background: '#0b0f19', padding: '30px', borderRadius: '20px', border: '1px solid #2a324b' }}>
+                <h3 style={{ marginTop: 0, color: '#ffffff', fontSize: '18px', marginBottom: '20px', fontWeight: '600' }}>Actionable Insights</h3>
+                <ul style={{ color: '#cbd5e1', fontSize: '15px', lineHeight: '1.8', paddingLeft: '20px' }}>
+                  <li>Student is trending <strong style={{ color: selectedStudentModal.trend === 'up' ? '#34d399' : '#f87171' }}>{selectedStudentModal.trend.toUpperCase()}</strong> over their last sessions.</li>
+                  <li>Evidence usage is frequently flagged as anecdotal rather than empirical.</li>
+                  <li>Communication clarity remains highly consistent.</li>
+                </ul>
+                <div style={{ marginTop: '30px', padding: '16px', background: 'rgba(99, 102, 241, 0.1)', borderRadius: '12px', borderLeft: '4px solid #6366f1' }}>
+                  <strong style={{ color: '#a5b4fc', display: 'block', marginBottom: '8px' }}>Coach Note</strong>
+                  <span style={{ color: '#e0e7ff', fontSize: '14px' }}>Review the latest session transcript before assigning new topics.</span>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      )}
 
       {/* --- ADD TOPIC MODAL OVERLAY --- */}
       {showAddTopicModal && (
@@ -1347,7 +1681,7 @@ const Dashboard = ({ authToken, userRole, logout }) => {
         </div>
       )}
 
-      {/* NEW: COACH FEEDBACK MODAL OVERLAY */}
+      {/* COACH FEEDBACK MODAL OVERLAY */}
       {feedbackModal.isOpen && (
         <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(9, 9, 11, 0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, backdropFilter: 'blur(8px)' }}>
           <div style={{ background: '#131825', padding: '40px', borderRadius: '24px', width: '100%', maxWidth: '480px', border: '1px solid #2a324b', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.8)' }}>
@@ -1393,6 +1727,7 @@ export default function App() {
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
         * { box-sizing: border-box; }
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #09090b; overflow-x: hidden; }
         ::-webkit-scrollbar { width: 8px; height: 8px; }
         ::-webkit-scrollbar-track { background: #09090b; }
         ::-webkit-scrollbar-thumb { background: #2a324b; border-radius: 4px; }
