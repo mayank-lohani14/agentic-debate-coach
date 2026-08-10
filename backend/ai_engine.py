@@ -1,13 +1,14 @@
 # Author: Mayank Lohani
 # Roll No: 2400320100677
 # Section: CSE-21
-# Description: Milestone 3 - AI Debate Simulation & Coaching Engine using LangChain, LangGraph Memory + PostgreSQL (SSE Streaming)
+# Description: Milestone 3 & 4 - AI Debate Simulation & Voice Presentation Analytics (LangGraph + SSE Streaming)
 
 from fastapi import APIRouter, Form, HTTPException, Header, UploadFile, File
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from typing import List, Optional, Annotated, TypedDict
 import os
+import time
 import psycopg2
 import jwt
 import json
@@ -22,7 +23,7 @@ from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 from langgraph.checkpoint.memory import MemorySaver
 
-# Import your new Milestone 3 schemas
+# Import your existing schemas
 from schemas import AIRebuttalResponse
 
 # Load environment variables
@@ -68,7 +69,7 @@ def calculate_overall_score(scores: dict) -> float:
 # ---------------------------------------------------------
 # SETUP AI CLIENTS
 # ---------------------------------------------------------
-# 1. Official Client for Audio Transcription
+# 1. Official Client for Audio Transcription and Prosody Analytics
 genai_client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY"))
 
 # 2. LangChain Client for Debate Engine
@@ -181,26 +182,78 @@ async def analyze_argument(
         try:
             target_text = text_argument
             
+            # Initialize empty analytics dictionary for Milestone 4
+            audio_analytics = {
+                "speech_pace": "N/A",
+                "filler_words_count": 0,
+                "confidence_score": 0,
+                "prosody_analysis": "N/A"
+            }
+            
             # Yield an initial status to the frontend
             yield f"data: {json.dumps({'type': 'status', 'message': 'Processing input...'})}\n\n"
             
-            # Step 2: Handle Audio Transcription
+            # Step 2: MILESTONE 4 - Handle Audio Transcription & Presentation Analytics
             if audio_file:
-                yield f"data: {json.dumps({'type': 'status', 'message': 'Transcribing audio...'})}\n\n"
+                yield f"data: {json.dumps({'type': 'status', 'message': 'Extracting Audio Presentation Analytics ...'})}\n\n"
                 audio_bytes = await audio_file.read()
                 temp_filename = f"temp_{session_id}_{audio_file.filename}"
                 with open(temp_filename, "wb") as f:
                     f.write(audio_bytes)
                 
                 try:
-                    uploaded_file = genai_client.files.upload(file=temp_filename)
-                    transcription_prompt = "Transcribe the exact speech from this audio file accurately for a debate analysis."
+                    # Explicitly provide mime_type to handle browser WebM/WAV blobs properly
+                    file_mime = audio_file.content_type if audio_file.content_type else "audio/webm"
+                    uploaded_file = genai_client.files.upload(
+                        file=temp_filename, 
+                        config={"mime_type": file_mime}
+                    )
+                    
+                    # Robust state check loop for Gemini server processing
+                    while True:
+                        file_info = genai_client.files.get(name=uploaded_file.name)
+                        state_val = getattr(file_info, "state", None)
+                        state_name = getattr(state_val, "name", str(state_val))
+                        
+                        if state_name == "ACTIVE":
+                            break
+                        elif state_name == "FAILED":
+                            raise Exception("Gemini failed to process the uploaded audio file.")
+                        
+                        print("Waiting for Gemini to process audio...")
+                        time.sleep(2)
+
+                    # Ask the model to return a structured JSON string containing both the transcript and presentation analytics
+                    transcription_prompt = """
+                    Listen to this audio file carefully. Output a JSON object exactly matching this format:
+                    {
+                        "transcript": "Exact transcription of the speech",
+                        "filler_words_count": <integer count of filler words like 'um', 'ah', 'like'>,
+                        "speech_pace": "<Descriptive pace, e.g., 'Normal (130 wpm)'>",
+                        "confidence_score": <integer 0-100 evaluating speaker vocal confidence>,
+                        "prosody_analysis": "<Brief one sentence analysis of pitch, tone, and audience engagement>"
+                    }
+                    Return ONLY valid JSON.
+                    """
                     transcript_response = genai_client.models.generate_content(
                         model='gemini-3.1-flash-lite',
                         contents=[uploaded_file, transcription_prompt]
                     )
+                    
                     if transcript_response.text:
-                        target_text = transcript_response.text
+                        # Clean potential markdown formatting from the response
+                        raw_json = transcript_response.text.replace("```json", "").replace("```", "").strip()
+                        try:
+                            extracted_data = json.loads(raw_json)
+                            target_text = extracted_data.get("transcript", "")
+                            audio_analytics["speech_pace"] = extracted_data.get("speech_pace", "N/A")
+                            audio_analytics["filler_words_count"] = extracted_data.get("filler_words_count", 0)
+                            audio_analytics["confidence_score"] = extracted_data.get("confidence_score", 0)
+                            audio_analytics["prosody_analysis"] = extracted_data.get("prosody_analysis", "N/A")
+                        except json.JSONDecodeError:
+                            # Fallback if JSON parsing fails
+                            target_text = transcript_response.text
+                            
                 finally:
                     if os.path.exists(temp_filename):
                         os.remove(temp_filename)
@@ -208,6 +261,10 @@ async def analyze_argument(
             if not target_text or not target_text.strip():
                 yield f"data: {json.dumps({'type': 'error', 'message': 'No argument text or speech transcript provided.'})}\n\n"
                 return
+
+            # Append the presentation analytics status if audio was processed
+            if audio_file:
+                yield f"data: {json.dumps({'type': 'status', 'message': f'Audio Analysis Complete. Pace: {audio_analytics["speech_pace"]} | Confidence: {audio_analytics["confidence_score"]}/100'})}\n\n"
 
             yield f"data: {json.dumps({'type': 'transcript', 'text': target_text})}\n\n"
             yield f"data: {json.dumps({'type': 'status', 'message': 'Generating AI Rebuttal...'})}\n\n"
@@ -239,14 +296,14 @@ async def analyze_argument(
             if not final_analysis:
                 raise Exception("Failed to generate analysis.")
 
-            # Step 4: Save results to PostgreSQL
+            # Step 4: Save results to PostgreSQL (Now includes Milestone 4 Data)
             conn = get_db_connection()
             cursor = conn.cursor()
             
             cursor.execute('''
                 INSERT INTO debate_turns 
-                (email, session_id, debate_format, user_transcript, clarity, relevance, evidence_strength, logical_consistency, persuasiveness, ai_rebuttal)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                (email, session_id, debate_format, user_transcript, clarity, relevance, evidence_strength, logical_consistency, persuasiveness, ai_rebuttal, speech_pace, filler_words_count, confidence_score, prosody_analysis)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ''', (
                 user_email,
                 session_id,
@@ -257,7 +314,11 @@ async def analyze_argument(
                 final_analysis.get("evidence_usage_score", 0),       
                 final_analysis.get("logical_consistency_score", 0),  
                 final_analysis.get("rebuttal_effectiveness_score", 0),
-                final_analysis["counter_argument"]["rebuttal_text"]   
+                final_analysis["counter_argument"]["rebuttal_text"],
+                audio_analytics.get("speech_pace", "N/A"),
+                audio_analytics.get("filler_words_count", 0),
+                audio_analytics.get("confidence_score", 0),
+                audio_analytics.get("prosody_analysis", "N/A")
             ))
             
             conn.commit()
@@ -266,6 +327,8 @@ async def analyze_argument(
 
             # Step 5: Send the final payload to the frontend to render the charts and scores
             final_analysis["user_transcript"] = target_text
+            # Append audio analytics to the final payload so the frontend can display them
+            final_analysis["presentation_analytics"] = audio_analytics 
             yield f"data: {json.dumps({'type': 'final', 'data': final_analysis})}\n\n"
             yield "data: [DONE]\n\n"
 

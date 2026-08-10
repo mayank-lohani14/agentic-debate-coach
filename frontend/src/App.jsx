@@ -13,7 +13,7 @@ const PAGE_AGENT_MAP = {
   'profile': ['Orchestrator Agent'],
   'topics': ['Recommendation & Coaching Agent'],
   'sessions': ['Recommendation & Coaching Agent', 'Performance Analytics Agent'],
-  'room': ['Argument Analysis Agent', 'Logical Fallacy Detection Agent', 'Counterargument Generation Agent'],
+  'room': ['Argument Analysis Agent', 'Logical Fallacy Detection Agent', 'Counterargument Generation Agent', 'Presentation Analysis Agent'],
   'reports': ['Performance Analytics Agent', 'Report Generation Agent'],
   'admin': ['Report Generation Agent', 'Performance Analytics Agent']
 };
@@ -360,12 +360,13 @@ const Dashboard = ({ authToken, userRole, logout }) => {
   const [analysisResult, setAnalysisResult] = useState(null);
   const [streamingText, setStreamingText] = useState(''); 
 
-  // Audio Recording State
+  // Audio Recording & Upload State
   const [isRecording, setIsRecording] = useState(false);
   const [audioURL, setAudioURL] = useState(null);
   const [audioBlob, setAudioBlob] = useState(null);
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
+  const fileInputRef = useRef(null);
 
   // Profile Bio State
   const [userBio, setUserBio] = useState('Passionate about sharpening argumentation skills, logical reasoning, and structured public speaking.');
@@ -608,8 +609,22 @@ const Dashboard = ({ authToken, userRole, logout }) => {
     }
   };
 
+  const handleFileUpload = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      setAudioBlob(file);
+      setAudioURL(URL.createObjectURL(file));
+    }
+  };
+
+  const clearAudio = () => {
+    setAudioBlob(null);
+    setAudioURL(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
   const handleAnalyze = async () => {
-    if (!argumentText.trim() && !audioBlob) return alert("Please type an argument or record your voice.");
+    if (!argumentText.trim() && !audioBlob) return alert("Please type an argument or record/upload your voice.");
     
     setIsAnalyzing(true);
     setAnalysisResult(null); 
@@ -829,12 +844,12 @@ const Dashboard = ({ authToken, userRole, logout }) => {
                      <h3 style={{ marginTop: 0, color: '#ffffff', marginBottom: '20px', fontSize: '18px' }}>Action Required: Pending Feedback</h3>
                      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                         <div style={{ padding: '16px', background: '#1e293b', borderRadius: '12px', borderLeft: '4px solid #f59e0b', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                           <div><strong style={{ color: '#f8fafc', display: 'block' }}>Student: Rahul S.</strong><span style={{fontSize:'13px', color:'#94a3b8'}}>Topic: AI Regulation</span></div>
-                           <button onClick={() => setActiveTab('sessions')} style={{ padding: '8px 16px', background: '#0b0f19', color: '#cbd5e1', border: '1px solid #334155', borderRadius: '8px', cursor: 'pointer', fontSize: '13px' }}>Review</button>
+                            <div><strong style={{ color: '#f8fafc', display: 'block' }}>Student: Rahul S.</strong><span style={{fontSize:'13px', color:'#94a3b8'}}>Topic: AI Regulation</span></div>
+                            <button onClick={() => setActiveTab('sessions')} style={{ padding: '8px 16px', background: '#0b0f19', color: '#cbd5e1', border: '1px solid #334155', borderRadius: '8px', cursor: 'pointer', fontSize: '13px' }}>Review</button>
                         </div>
                         <div style={{ padding: '16px', background: '#1e293b', borderRadius: '12px', borderLeft: '4px solid #f59e0b', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                           <div><strong style={{ color: '#f8fafc', display: 'block' }}>Student: Priya P.</strong><span style={{fontSize:'13px', color:'#94a3b8'}}>Topic: Universal Basic Income</span></div>
-                           <button onClick={() => setActiveTab('sessions')} style={{ padding: '8px 16px', background: '#0b0f19', color: '#cbd5e1', border: '1px solid #334155', borderRadius: '8px', cursor: 'pointer', fontSize: '13px' }}>Review</button>
+                            <div><strong style={{ color: '#f8fafc', display: 'block' }}>Student: Priya P.</strong><span style={{fontSize:'13px', color:'#94a3b8'}}>Topic: Universal Basic Income</span></div>
+                            <button onClick={() => setActiveTab('sessions')} style={{ padding: '8px 16px', background: '#0b0f19', color: '#cbd5e1', border: '1px solid #334155', borderRadius: '8px', cursor: 'pointer', fontSize: '13px' }}>Review</button>
                         </div>
                      </div>
                   </>
@@ -1005,7 +1020,7 @@ const Dashboard = ({ authToken, userRole, logout }) => {
                <h2 style={{ margin: 0, color: '#ffffff', fontSize: '32px', fontWeight: '700' }}>Topic Library</h2>
                {isManager && (
                  <button onClick={() => setShowAddTopicModal(true)} style={{ padding: '12px 24px', background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)', color: 'white', border: 'none', borderRadius: '10px', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 10px 15px -3px rgba(16, 185, 129, 0.3)', fontSize: '15px' }}>
-                   ➕ Create Topic
+                    ➕ Create Topic
                  </button>
                )}
             </div>
@@ -1149,7 +1164,7 @@ const Dashboard = ({ authToken, userRole, logout }) => {
           </div>
         )}
         
-        {/* 5. DEBATE ROOM WITH AUDIO */}
+        {/* 5. DEBATE ROOM WITH AUDIO & MILESTONE 4 PRESENTATION ANALYTICS RESTORED */}
         {activeTab === 'room' && (
           <div style={{ background: '#131825', padding: '40px', borderRadius: '24px', border: '1px solid #2a324b', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)' }}>
             <h2 style={{ marginTop: 0, color: '#ffffff', marginBottom: '30px', fontSize: '28px' }}>
@@ -1191,11 +1206,56 @@ const Dashboard = ({ authToken, userRole, logout }) => {
                 }}>
                 {isRecording ? "🛑 Stop Recording" : "🎤 Record Argument"}
               </button>
+
+              <input 
+                type="file" 
+                accept="audio/*" 
+                ref={fileInputRef} 
+                onChange={handleFileUpload} 
+                style={{ display: 'none' }} 
+              />
+              <button 
+                onClick={() => fileInputRef.current.click()} 
+                style={{ 
+                  padding: '14px 28px', 
+                  background: 'rgba(59, 130, 246, 0.1)', 
+                  color: '#60a5fa', 
+                  border: '1px solid rgba(59, 130, 246, 0.3)', 
+                  borderRadius: '12px', 
+                  fontWeight: 'bold', 
+                  cursor: 'pointer', 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: '10px', 
+                  fontSize: '15px', 
+                  transition: 'all 0.2s' 
+                }}>
+                📂 Upload Audio
+              </button>
               
               {isRecording && <span style={{ color: '#f87171', fontWeight: 'bold', animation: 'pulse 1.5s infinite' }}>Recording in progress...</span>}
               
               {audioURL && !isRecording && (
-                <audio src={audioURL} controls style={{ height: '44px', flexGrow: 1, borderRadius: '12px', background: '#0b0f19' }} />
+                <>
+                  <audio src={audioURL} controls style={{ height: '44px', flexGrow: 1, borderRadius: '12px', background: '#0b0f19' }} />
+                  <button 
+                    onClick={clearAudio} 
+                    style={{ 
+                      padding: '10px 14px', 
+                      background: 'rgba(239, 68, 68, 0.1)', 
+                      color: '#f87171', 
+                      border: '1px solid rgba(239, 68, 68, 0.3)', 
+                      borderRadius: '8px', 
+                      cursor: 'pointer', 
+                      fontSize: '16px', 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      justifyContent: 'center',
+                      transition: 'all 0.2s'
+                    }}>
+                    🗑️
+                  </button>
+                </>
               )}
             </div>
 
@@ -1221,6 +1281,33 @@ const Dashboard = ({ authToken, userRole, logout }) => {
                   <div style={{ padding: '24px', background: '#1e293b', borderRadius: '16px', borderLeft: '4px solid #34d399', borderTop: '1px solid #2a324b', borderRight: '1px solid #2a324b', borderBottom: '1px solid #2a324b' }}>
                     <strong style={{ color: '#cbd5e1', display: 'block', marginBottom: '10px', fontSize: '16px' }}>🗣️ What the AI Heard:</strong>
                     <span style={{ color: '#94a3b8', fontStyle: 'italic', lineHeight: '1.6', fontSize: '15px' }}>"{analysisResult.user_transcript}"</span>
+                  </div>
+                )}
+
+                {/* --- RESTORED: MILESTONE 4 PRESENTATION ANALYTICS CARD --- */}
+                {analysisResult.presentation_analytics && (
+                  <div style={{ background: '#1e293b', padding: '30px', borderRadius: '16px', border: '1px solid #334155' }}>
+                    <h3 style={{ marginTop: 0, color: '#38bdf8', fontSize: '20px', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      🎙️ Presentation & Voice Analytics
+                    </h3>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '20px' }}>
+                      <div style={{ background: '#0b0f19', padding: '16px', borderRadius: '12px', border: '1px solid #2a324b' }}>
+                        <span style={{ fontSize: '12px', color: '#94a3b8', textTransform: 'uppercase' }}>Speech Pace</span>
+                        <strong style={{ display: 'block', color: '#f8fafc', fontSize: '18px', marginTop: '4px' }}>{analysisResult.presentation_analytics.speech_pace}</strong>
+                      </div>
+                      <div style={{ background: '#0b0f19', padding: '16px', borderRadius: '12px', border: '1px solid #2a324b' }}>
+                        <span style={{ fontSize: '12px', color: '#94a3b8', textTransform: 'uppercase' }}>Vocal Confidence</span>
+                        <strong style={{ display: 'block', color: '#34d399', fontSize: '18px', marginTop: '4px' }}>{analysisResult.presentation_analytics.confidence_score}/100</strong>
+                      </div>
+                      <div style={{ background: '#0b0f19', padding: '16px', borderRadius: '12px', border: '1px solid #2a324b' }}>
+                        <span style={{ fontSize: '12px', color: '#94a3b8', textTransform: 'uppercase' }}>Filler Words Detected</span>
+                        <strong style={{ display: 'block', color: '#fbbf24', fontSize: '18px', marginTop: '4px' }}>{analysisResult.presentation_analytics.filler_words_count}</strong>
+                      </div>
+                    </div>
+                    <div style={{ background: '#0b0f19', padding: '16px', borderRadius: '12px', border: '1px solid #2a324b' }}>
+                      <span style={{ fontSize: '12px', color: '#94a3b8', textTransform: 'uppercase', display: 'block', marginBottom: '4px' }}>Prosody & Tone Analysis</span>
+                      <p style={{ margin: 0, color: '#cbd5e1', fontSize: '14px', fontStyle: 'italic' }}>"{analysisResult.presentation_analytics.prosody_analysis}"</p>
+                    </div>
                   </div>
                 )}
 
