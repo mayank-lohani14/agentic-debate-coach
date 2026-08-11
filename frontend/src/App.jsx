@@ -760,24 +760,32 @@ const Dashboard = ({ authToken, userRole, logout }) => {
             <button onClick={() => setActiveTab('admin')} style={navButtonStyle('admin')}>⚙️ System Admin</button>
           )}
         </div>
-
-        <div style={{ borderTop: '1px solid #2a324b', paddingTop: '24px', margin: '0 24px' }}>
-          <div style={{ background: '#1e293b', padding: '16px', borderRadius: '12px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '12px', border: '1px solid #334155' }}>
-            <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 'bold' }}>
-              {userRole?.charAt(0) || 'L'}
-            </div>
-            <div>
-              <p style={{ margin: '0', fontSize: '12px', color: '#94a3b8' }}>Logged in as</p>
-              <strong style={{ color: '#f8fafc', fontSize: '14px' }}>{userRole || 'Learner'}</strong>
-            </div>
-          </div>
-          <button onClick={logout} style={{ width: '100%', padding: '12px', background: 'transparent', color: '#ef4444', border: '1px solid #7f1d1d', borderRadius: '12px', cursor: 'pointer', fontWeight: 'bold', transition: 'all 0.2s', ':hover': { background: '#7f1d1d' } }}>Logout</button>
-        </div>
       </div>
 
       {/* --- MAIN CONTENT AREA --- */}
-      <div style={{ flexGrow: 1, padding: '50px 60px', overflowY: 'auto', paddingBottom: '100px', color: '#f8fafc' }}>
+      <div style={{ flexGrow: 1, padding: '50px 60px', overflowY: 'auto', paddingBottom: '100px', color: '#f8fafc', display: 'flex', flexDirection: 'column' }}>
         
+        {/* --- GLOBAL TOP NAVIGATION BAR --- */}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '24px', marginBottom: '40px', borderBottom: '1px solid #2a324b', paddingBottom: '20px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <div style={{ textAlign: 'right' }}>
+              <p style={{ margin: '0', fontSize: '12px', color: '#94a3b8' }}>Logged in as</p>
+              <strong style={{ color: '#f8fafc', fontSize: '14px' }}>{userRole || 'Learner'}</strong>
+            </div>
+            <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: 'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 'bold', boxShadow: '0 4px 10px rgba(168, 85, 247, 0.3)' }}>
+              {userRole?.charAt(0) || 'L'}
+            </div>
+          </div>
+          <button 
+            onClick={logout} 
+            style={{ padding: '10px 20px', background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: '10px', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px', transition: 'all 0.2s' }} 
+            onMouseOver={(e) => { e.currentTarget.style.background = '#ef4444'; e.currentTarget.style.color = '#fff'; }} 
+            onMouseOut={(e) => { e.currentTarget.style.background = 'rgba(239, 68, 68, 0.1)'; e.currentTarget.style.color = '#ef4444'; }}
+          >
+            Logout 🚪
+          </button>
+        </div>
+
         {/* 1. Dashboard Overview */}
         {activeTab === 'dashboard' && (
           <div>
