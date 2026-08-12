@@ -123,12 +123,32 @@ def init_db():
             );
         ''')
         
-        # Safely add the column if the table already existed before this update
+        # Safely add columns if the table already existed before updates
         try:
             cursor.execute('ALTER TABLE debate_turns ADD COLUMN coach_feedback TEXT;')
         except psycopg2.errors.DuplicateColumn:
-            pass # Column already exists
+            pass 
             
+        try:
+            cursor.execute('ALTER TABLE debate_turns ADD COLUMN filler_words_count INTEGER DEFAULT 0;')
+        except psycopg2.errors.DuplicateColumn:
+            pass
+
+        try:
+            cursor.execute('ALTER TABLE debate_turns ADD COLUMN confidence_score INTEGER DEFAULT 0;')
+        except psycopg2.errors.DuplicateColumn:
+            pass
+
+        try:
+            cursor.execute('ALTER TABLE debate_turns ADD COLUMN speech_pace VARCHAR(100);')
+        except psycopg2.errors.DuplicateColumn:
+            pass
+
+        try:
+            cursor.execute('ALTER TABLE debate_turns ADD COLUMN prosody_analysis TEXT;')
+        except psycopg2.errors.DuplicateColumn:
+            pass
+          
         conn.commit()
         cursor.close()
         conn.close()
@@ -152,7 +172,7 @@ class ChatMessage(BaseModel):
     user_role: str = Field(default="Learner", description="Role of the user")
     session_id: Optional[str] = "default_session"
 
-# NEW: Schema for Coach Feedback
+# Schema for Coach Feedback
 class CoachFeedback(BaseModel):
     turn_id: int
     feedback: str
@@ -223,7 +243,8 @@ async def get_debate_history(authorization: Optional[str] = Header(None)):
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         
         cursor.execute('''
-            SELECT debate_format, clarity, relevance, evidence_strength, logical_consistency, persuasiveness, coach_feedback, timestamp
+            SELECT debate_format, clarity, relevance, evidence_strength, logical_consistency, persuasiveness, coach_feedback, timestamp,
+                   filler_words_count, confidence_score, speech_pace, prosody_analysis
             FROM debate_turns
             WHERE email = %s
             ORDER BY timestamp DESC
@@ -267,11 +288,13 @@ async def get_student_histories(authorization: Optional[str] = Header(None)):
         conn = get_db_connection()
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         
+        # UPDATED: Added audio metrics columns so the Speech Delivery chart populates correctly
         cursor.execute('''
             SELECT 
                 dt.id, dt.session_id, dt.debate_format, dt.user_transcript, 
                 dt.clarity, dt.relevance, dt.evidence_strength, 
                 dt.logical_consistency, dt.persuasiveness, dt.ai_rebuttal, dt.coach_feedback, dt.timestamp,
+                dt.filler_words_count, dt.confidence_score, dt.speech_pace, dt.prosody_analysis,
                 u.username AS learner_name, u.email AS learner_email
             FROM debate_turns dt
             JOIN users u ON dt.email = u.email
@@ -287,13 +310,16 @@ async def get_student_histories(authorization: Optional[str] = Header(None)):
         for item in history:
             if item.get("timestamp"):
                 item["timestamp"] = item["timestamp"].isoformat()
+            # Safety fallbacks for null values
+            item["filler_words_count"] = item.get("filler_words_count") or 0
+            item["confidence_score"] = item.get("confidence_score") or 0
 
         return {"data": history}
     except Exception as e:
         print(f"❌ Manager Fetch Error: {str(e)}")
         raise HTTPException(status_code=500, detail="Could not fetch student histories")
 
-# NEW: Submit Coach Feedback Endpoint
+# Submit Coach Feedback Endpoint
 @app.post("/api/v1/manager/feedback")
 async def submit_coach_feedback(data: CoachFeedback, authorization: Optional[str] = Header(None)):
     if not authorization or not authorization.startswith("Bearer "):
@@ -347,11 +373,9 @@ async def get_admin_stats(authorization: Optional[str] = Header(None)):
         conn = get_db_connection()
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         
-        # 1. Fetch all registered users
         cursor.execute("SELECT username, email, role, experienceLevel FROM users ORDER BY role, username;")
         users_list = [dict(row) for row in cursor.fetchall()]
         
-        # 2. Calculate system-wide KPIs
         cursor.execute("SELECT COUNT(*) as total_users FROM users;")
         total_users = cursor.fetchone()["total_users"]
         

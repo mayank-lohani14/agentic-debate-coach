@@ -3,7 +3,7 @@ import axios from 'axios';
 import { 
   Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, 
   ResponsiveContainer, Tooltip, LineChart, Line, XAxis, YAxis, CartesianGrid,
-  PieChart, Pie, Cell, Legend
+  Legend, BarChart, Bar
 } from 'recharts';
 import jsPDF from 'jspdf';
 
@@ -17,14 +17,6 @@ const PAGE_AGENT_MAP = {
   'reports': ['Performance Analytics Agent', 'Report Generation Agent'],
   'admin': ['Report Generation Agent', 'Performance Analytics Agent']
 };
-
-// --- Mock Data for Educator Features ---
-const FALLACY_DATA = [
-  { name: 'Ad Hominem', value: 400, color: '#ef4444' },
-  { name: 'Slippery Slope', value: 300, color: '#f59e0b' },
-  { name: 'Red Herring', value: 300, color: '#3b82f6' },
-  { name: 'Straw Man', value: 200, color: '#10b981' },
-];
 
 // --- Floating Chatbot Component ---
 const FloatingChatbot = ({ authToken, userRole = 'Learner', activeTab = 'dashboard' }) => {
@@ -394,7 +386,7 @@ const Dashboard = ({ authToken, userRole, logout }) => {
 
   // Feedback Modal State & Drilldown State
   const [feedbackModal, setFeedbackModal] = useState({ isOpen: false, turnId: null, text: '' });
-  const [selectedStudentModal, setSelectedStudentModal] = useState(null); // NEW
+  const [selectedStudentModal, setSelectedStudentModal] = useState(null); 
 
   // Fetch histories for both reports and manager dashboards
   useEffect(() => {
@@ -415,53 +407,94 @@ const Dashboard = ({ authToken, userRole, logout }) => {
     }
   }, [activeTab, userRole]);
 
-  // Dynamically calculate actual student performance heatmap data from backend histories
-  const classroomHeatmapData = useMemo(() => {
+  // --- 100% DYNAMIC DATA AGGREGATION SCRIPT ---
+  // Completely replaces Mock Data by scanning DB rows and AI Rebuttals
+  const dashboardAnalytics = useMemo(() => {
     const studentMap = {};
-    studentHistories.forEach(session => {
-      // Safely default undefined metrics to 0
+    const dateMap = {};
+
+    // Sort chronologically for accurate timeline charts
+    const sortedHistories = [...studentHistories].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+
+    sortedHistories.forEach(session => {
+      // 1. Extract DB Values safely
+      const logic = session.logical_consistency || 0;
+      const persuasion = session.persuasiveness || 0;
       const clarity = session.clarity || 0;
       const relevance = session.relevance || 0;
       const evidence = session.evidence_strength || 0;
-      const logic = session.logical_consistency || 0;
-      const persuasion = session.persuasiveness || 0;
+      const filler = session.filler_words_count || 0;
+      const confidence = session.confidence_score || 0;
+      const rebuttalText = (session.ai_rebuttal || '').toLowerCase();
       
-      const sessionAvg = Math.round((clarity + relevance + evidence + logic + persuasion) / 5);
+      const score = Math.round((logic + persuasion + clarity + relevance + evidence) / 5);
       const name = session.learner_name || 'Unknown Student';
+
+      // 2. Timeline Aggregation (For Class Progress Chart)
+      const dateObj = new Date(session.timestamp);
+      const dateKey = isNaN(dateObj) ? 'Recent' : dateObj.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
       
-      if (!studentMap[name]) {
-        studentMap[name] = [];
+      if (!dateMap[dateKey]) {
+        dateMap[dateKey] = { date: dateKey, totalScore: 0, count: 0 };
       }
-      studentMap[name].push({
-        score: sessionAvg,
-        logic: logic,
-        clarity: clarity,
-        persuasion: persuasion,
-        evidence: evidence, // Saving granular data for the modal radar chart
-        timestamp: new Date(session.timestamp).getTime() || 0,
-        rawSession: session
-      });
+      dateMap[dateKey].totalScore += score;
+      dateMap[dateKey].count += 1;
+
+      // 3. Student Aggregation (For Radar, Filler Words, and Fallacy Charts)
+      if (!studentMap[name]) {
+        studentMap[name] = {
+          name: name,
+          sessions: [],
+          totalFiller: 0,
+          totalConfidence: 0,
+          fallacies: { 'Ad Hominem': 0, 'Straw Man': 0, 'Red Herring': 0, 'Slippery Slope': 0 }
+        };
+      }
+      
+      studentMap[name].sessions.push({ score, logic, persuasion, evidence, clarity, timestamp: dateObj.getTime(), rawSession: session });
+      studentMap[name].totalFiller += filler;
+      studentMap[name].totalConfidence += confidence;
+
+      // 4. Fallacy Detection Parser (Replaces MOCK DATA)
+      // Scans actual backend AI generated responses for identified fallacies
+      if (rebuttalText.includes('ad hominem')) studentMap[name].fallacies['Ad Hominem'] += 1;
+      if (rebuttalText.includes('straw man')) studentMap[name].fallacies['Straw Man'] += 1;
+      if (rebuttalText.includes('red herring')) studentMap[name].fallacies['Red Herring'] += 1;
+      if (rebuttalText.includes('slippery slope')) studentMap[name].fallacies['Slippery Slope'] += 1;
     });
 
-    return Object.keys(studentMap).map(name => {
-      const sessions = studentMap[name].sort((a, b) => a.timestamp - b.timestamp); // Oldest to newest
-      const totalScore = sessions.reduce((sum, s) => sum + s.score, 0);
-      const avgScore = Math.round(totalScore / sessions.length);
+    // Format output for Charts
+    const progressData = Object.values(dateMap).map(d => ({
+      date: d.date,
+      avgScore: Math.round(d.totalScore / d.count)
+    }));
 
+    const studentStats = Object.keys(studentMap).map(name => {
+      const data = studentMap[name];
+      const sCount = data.sessions.length;
+      
       let trend = 'up';
-      if (sessions.length > 1) {
-        const latest = sessions[sessions.length - 1].score;
-        const previous = sessions[sessions.length - 2].score;
-        trend = latest >= previous ? 'up' : 'down';
+      if (sCount > 1) {
+        trend = data.sessions[sCount - 1].score >= data.sessions[sCount - 2].score ? 'up' : 'down';
       }
 
       return {
-        name: name,
-        score: avgScore,
-        trend: trend,
-        rawSessions: sessions // Attached so drill-down modal can access it
+        name,
+        score: Math.round(data.sessions.reduce((s, x) => s + x.score, 0) / sCount),
+        avgLogic: Math.round(data.sessions.reduce((s, x) => s + x.logic, 0) / sCount),
+        avgPersuasion: Math.round(data.sessions.reduce((s, x) => s + x.persuasion, 0) / sCount),
+        avgFiller: Math.round(data.totalFiller / sCount),
+        avgConfidence: Math.round(data.totalConfidence / sCount),
+        trend,
+        rawSessions: data.sessions.map(s => s.rawSession),
+        'Ad Hominem': data.fallacies['Ad Hominem'],
+        'Straw Man': data.fallacies['Straw Man'],
+        'Red Herring': data.fallacies['Red Herring'],
+        'Slippery Slope': data.fallacies['Slippery Slope']
       };
     });
+
+    return { progressData, studentStats };
   }, [studentHistories]);
 
   const fetchHistory = async () => {
@@ -890,9 +923,9 @@ const Dashboard = ({ authToken, userRole, logout }) => {
               {userRole === 'Educator' && (
                 <div style={{ background: '#131825', padding: '30px', borderRadius: '24px', border: '1px solid #2a324b' }}>
                   <h3 style={{ marginTop: 0, color: '#ffffff', marginBottom: '20px', fontSize: '18px' }}>Student Performance Heatmap</h3>
-                  {classroomHeatmapData.length > 0 ? (
+                  {dashboardAnalytics.studentStats.length > 0 ? (
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '16px' }}>
-                      {classroomHeatmapData.map((student, i) => (
+                      {dashboardAnalytics.studentStats.map((student, i) => (
                         <div key={i} onClick={() => setSelectedStudentModal(student)} style={{ padding: '16px', borderRadius: '12px', background: student.score < 65 ? 'rgba(239,68,68,0.1)' : student.score > 85 ? 'rgba(16,185,129,0.1)' : 'rgba(245,158,11,0.1)', border: `1px solid ${student.score < 65 ? 'rgba(239,68,68,0.3)' : student.score > 85 ? 'rgba(16,185,129,0.3)' : 'rgba(245,158,11,0.3)'}`, textAlign: 'center', cursor: 'pointer', transition: 'transform 0.2s' }} onMouseOver={(e) => e.currentTarget.style.transform = 'scale(1.05)'} onMouseOut={(e) => e.currentTarget.style.transform = 'scale(1)'}>
                           <strong style={{ display: 'block', color: '#f8fafc', fontSize: '15px' }}>{student.name}</strong>
                           <span style={{ fontSize: '24px', fontWeight: 'bold', color: student.score < 65 ? '#f87171' : student.score > 85 ? '#34d399' : '#fbbf24' }}>{student.score}</span>
@@ -909,19 +942,105 @@ const Dashboard = ({ authToken, userRole, logout }) => {
               )}
             </div>
 
-            {userRole === 'Educator' && (
-              <div style={{ background: '#131825', padding: '30px', borderRadius: '24px', border: '1px solid #2a324b' }}>
-                <h3 style={{ marginTop: 0, color: '#ffffff', marginBottom: '20px', fontSize: '18px' }}>Class-Wide Fallacy Trends</h3>
-                <div style={{ height: '300px', width: '100%' }}>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie data={FALLACY_DATA} cx="50%" cy="50%" innerRadius={60} outerRadius={100} paddingAngle={5} dataKey="value">
-                        {FALLACY_DATA.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.color} />)}
-                      </Pie>
-                      <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: '8px', color: '#fff' }} />
-                      <Legend verticalAlign="bottom" height={36}/>
-                    </PieChart>
-                  </ResponsiveContainer>
+            {/* --- NEW 2x2 DYNAMIC EDUCATOR ANALYTICS --- */}
+            {(userRole === 'Educator' || userRole === 'Debate Coach') && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '30px', marginBottom: '30px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '24px' }}>
+                  
+                  {/* Chart 1: Class Progress Over Time */}
+                  <div style={{ background: '#131825', padding: '30px', borderRadius: '24px', border: '1px solid #2a324b' }}>
+                    <h3 style={{ marginTop: 0, color: '#ffffff', marginBottom: '20px', fontSize: '18px' }}>Class Progress Over Time</h3>
+                    <div style={{ height: '300px', width: '100%' }}>
+                      {dashboardAnalytics.progressData.length > 0 ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <LineChart data={dashboardAnalytics.progressData}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#2a324b" vertical={false} />
+                            <XAxis dataKey="date" stroke="#94a3b8" tick={{ fontSize: 12 }} />
+                            <YAxis domain={[0, 100]} stroke="#94a3b8" tick={{ fontSize: 12 }} />
+                            <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: '8px', color: '#fff' }} />
+                            <Line type="monotone" dataKey="avgScore" name="Class Average" stroke="#38bdf8" strokeWidth={3} dot={{ r: 4, fill: '#38bdf8', strokeWidth: 0 }} />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontStyle: 'italic' }}>No session data recorded yet.</div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Chart 3: Speech Delivery Warning Board */}
+                  <div style={{ background: '#131825', padding: '30px', borderRadius: '24px', border: '1px solid #2a324b' }}>
+                    <h3 style={{ marginTop: 0, color: '#ffffff', marginBottom: '20px', fontSize: '18px' }}>Speech Delivery Metrics</h3>
+                    <div style={{ height: '300px', width: '100%' }}>
+                      {dashboardAnalytics.studentStats.length > 0 ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={dashboardAnalytics.studentStats} layout="vertical" margin={{ left: 20 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#2a324b" horizontal={false} />
+                            <XAxis type="number" stroke="#94a3b8" tick={{ fontSize: 12 }} />
+                            <YAxis dataKey="name" type="category" stroke="#94a3b8" tick={{ fontSize: 12 }} width={80} />
+                            <Tooltip cursor={{ fill: 'rgba(99, 102, 241, 0.1)' }} contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: '8px', color: '#fff' }} />
+                            <Legend verticalAlign="top" height={36} />
+                            <Bar dataKey="avgFiller" name="Avg Filler Words" fill="#fbbf24" radius={[0, 4, 4, 0]} />
+                            <Bar dataKey="avgConfidence" name="Avg Confidence (%)" fill="#34d399" radius={[0, 4, 4, 0]} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontStyle: 'italic' }}>No voice analysis data available yet.</div>
+                      )}
+                    </div>
+                  </div>
+
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '24px' }}>
+                  
+                  {/* Chart 4: Fallacy Distribution Stacked Bar */}
+                  <div style={{ background: '#131825', padding: '30px', borderRadius: '24px', border: '1px solid #2a324b' }}>
+                    <h3 style={{ marginTop: 0, color: '#ffffff', marginBottom: '20px', fontSize: '18px' }}>Fallacy Distribution by Student</h3>
+                    <div style={{ height: '300px', width: '100%' }}>
+                      {dashboardAnalytics.studentStats.length > 0 ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={dashboardAnalytics.studentStats}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#2a324b" vertical={false} />
+                            <XAxis dataKey="name" stroke="#94a3b8" tick={{ fontSize: 12 }} />
+                            <YAxis stroke="#94a3b8" tick={{ fontSize: 12 }} allowDecimals={false} />
+                            <Tooltip cursor={{ fill: 'rgba(99, 102, 241, 0.1)' }} contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: '8px', color: '#fff' }} />
+                            <Legend verticalAlign="top" height={36} />
+                            <Bar dataKey="Ad Hominem" stackId="a" fill="#ef4444" />
+                            <Bar dataKey="Straw Man" stackId="a" fill="#10b981" />
+                            <Bar dataKey="Red Herring" stackId="a" fill="#3b82f6" />
+                            <Bar dataKey="Slippery Slope" stackId="a" fill="#f59e0b" />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontStyle: 'italic' }}>No fallacy data detected yet.</div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Student Logic vs Persuasion Bar */}
+                  <div style={{ background: '#131825', padding: '30px', borderRadius: '24px', border: '1px solid #2a324b' }}>
+                    <h3 style={{ marginTop: 0, color: '#ffffff', marginBottom: '20px', fontSize: '18px' }}>Student Logic vs. Persuasion</h3>
+                    <div style={{ height: '300px', width: '100%' }}>
+                      {dashboardAnalytics.studentStats.length > 0 ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={dashboardAnalytics.studentStats.slice(0, 7)}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#2a324b" vertical={false} />
+                            <XAxis dataKey="name" stroke="#94a3b8" tick={{ fontSize: 12 }} />
+                            <YAxis stroke="#94a3b8" tick={{ fontSize: 12 }} domain={[0, 100]} />
+                            <Tooltip cursor={{ fill: 'rgba(99, 102, 241, 0.1)' }} contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: '8px', color: '#fff' }} />
+                            <Legend verticalAlign="top" height={36} />
+                            <Bar dataKey="avgLogic" name="Logic Score" fill="#6366f1" radius={[4, 4, 0, 0]} />
+                            <Bar dataKey="avgPersuasion" name="Persuasion Score" fill="#a855f7" radius={[4, 4, 0, 0]} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontStyle: 'italic' }}>
+                          No student data available yet.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
                 </div>
               </div>
             )}
@@ -1140,7 +1259,7 @@ const Dashboard = ({ authToken, userRole, logout }) => {
                               </button>
                               
                               <button onClick={() => {
-                                const studentData = classroomHeatmapData.find(s => s.name === session.learner_name) || { 
+                                const studentData = dashboardAnalytics.studentStats.find(s => s.name === session.learner_name) || { 
                                   name: session.learner_name, 
                                   score: avgScore, 
                                   trend: 'up', 
@@ -1410,11 +1529,11 @@ const Dashboard = ({ authToken, userRole, logout }) => {
             {(userRole === 'Debate Coach' || userRole === 'Educator') && (
               <div style={{ marginTop: '20px' }}>
                 <p style={{ color: '#94a3b8', fontSize: '15px', marginBottom: '30px' }}><strong>Team Analytics:</strong> Select a student below to drill down into their individual logic and speaking scores.</p>
-                {classroomHeatmapData.length === 0 ? (
+                {dashboardAnalytics.studentStats.length === 0 ? (
                   <p style={{ color: '#818cf8', fontSize: '15px' }}>No student data available yet.</p>
                 ) : (
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: '20px' }}>
-                    {classroomHeatmapData.map((student, i) => (
+                    {dashboardAnalytics.studentStats.map((student, i) => (
                       <div key={i} onClick={() => setSelectedStudentModal(student)} style={{ background: '#1e293b', padding: '24px', borderRadius: '16px', border: '1px solid #334155', cursor: 'pointer', transition: 'transform 0.2s' }} onMouseOver={(e) => e.currentTarget.style.transform = 'translateY(-4px)'} onMouseOut={(e) => e.currentTarget.style.transform = 'translateY(0)'}>
                         <strong style={{ display: 'block', color: 'white', fontSize: '18px', marginBottom: '8px' }}>{student.name}</strong>
                         <div style={{ display: 'flex', justifyContent: 'space-between', color: '#94a3b8', fontSize: '14px' }}>
