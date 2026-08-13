@@ -27,12 +27,14 @@ An advanced, full-stack, AI-powered debate coaching and presentation analysis pl
 
 Based on your workspace layout:
 ```text
-agentic-debate-coach/
+Agentic ai debate  coach/
 │
 ├── backend/                  # FastAPI backend server & AI engine
+│   ├── __pycache__/
 │   ├── ai_engine.py          # LangGraph workflows & Gemini transcriptions
 │   ├── auth.py               # Authentication & JWT security logic
 │   ├── database.py           # PostgreSQL database connection handler
+│   ├── debate_users.db       # Local SQLite fallback/database file
 │   ├── engine.py             # Additional AI/debate core processing
 │   ├── main.py               # FastAPI application routing setup
 │   ├── models.py             # Database ORM models
@@ -42,12 +44,16 @@ agentic-debate-coach/
 │
 ├── frontend/                 # React + Vite user interface
 │   ├── src/                  # Components, pages, and UI logic
-│   ├── Dockerfile            # Frontend container configuration
+│   ├── node_modules/         # Node dependencies
 │   ├── .dockerignore         # Excludes local node_modules from container
-│   ├── package.json          # Node dependencies
-│   └── index.html            # Main HTML entry point
+│   ├── .gitignore
+│   ├── Dockerfile            # Frontend container configuration
+│   ├── index.html            # Main HTML entry point
+│   ├── package-lock.json
+│   └── package.json          # Node dependencies
 │
 ├── .env                      # Environment variables (API keys & DB config)
+├── .gitignore
 ├── docker-compose.yml        # Multi-container orchestration (DB, API, UI)
 ├── LICENSE                   # Project license
 └── README.md                 # Project documentation
@@ -58,11 +64,16 @@ Docker Desktop installed and running.
 A valid Google Gemini API Key from Google AI Studio.
 
 1. Environment Configuration
-Create an .env file in the root directory and add your credentials:
+Create a .env file in your root workspace directory and add your credentials:
 
 Code snippet
 GOOGLE_API_KEY=your_gemini_api_key_here
 GEMINI_API_KEY=your_gemini_api_key_here
+DB_HOST=localhost
+DB_NAME=debate_db
+DB_USER=postgres
+DB_PASSWORD=Mayank123
+DB_PORT=5432
 2. Running with Docker (Recommended)
 Build and run all services (PostgreSQL database, FastAPI backend, and React frontend) simultaneously:
 
@@ -74,7 +85,19 @@ Frontend Application: Access at http://localhost:5173
 
 Backend API Documentation: Access at http://localhost:8000/docs
 
+3. Running Locally (Development Mode)
+If you prefer running components manually in separate terminal windows:
+
+Backend Server:
+
+PowerShell
+cd backend
+uvicorn main:app --reload
+Frontend App:
+
+PowerShell
+cd frontend
+npm install
+npm run dev
 👤 Author & Academic Details
 Name: Mayank Lohani
-
-

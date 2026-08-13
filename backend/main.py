@@ -105,6 +105,7 @@ def init_db():
                 experienceLevel VARCHAR(100) NOT NULL
             );
         ''')
+        conn.commit()
         
         # PostgreSQL Debate History Table
         cursor.execute('''
@@ -124,34 +125,24 @@ def init_db():
                 timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         ''')
-        
-        # Safely add columns if the table already existed before updates
-        try:
-            cursor.execute('ALTER TABLE debate_turns ADD COLUMN coach_feedback TEXT;')
-        except psycopg2.errors.DuplicateColumn:
-            pass 
-            
-        try:
-            cursor.execute('ALTER TABLE debate_turns ADD COLUMN filler_words_count INTEGER DEFAULT 0;')
-        except psycopg2.errors.DuplicateColumn:
-            pass
-
-        try:
-            cursor.execute('ALTER TABLE debate_turns ADD COLUMN confidence_score INTEGER DEFAULT 0;')
-        except psycopg2.errors.DuplicateColumn:
-            pass
-
-        try:
-            cursor.execute('ALTER TABLE debate_turns ADD COLUMN speech_pace VARCHAR(100);')
-        except psycopg2.errors.DuplicateColumn:
-            pass
-
-        try:
-            cursor.execute('ALTER TABLE debate_turns ADD COLUMN prosody_analysis TEXT;')
-        except psycopg2.errors.DuplicateColumn:
-            pass
-          
         conn.commit()
+        
+        # Safely add columns with explicit rollbacks to prevent aborted transaction blocks
+        columns_to_add = [
+            'ALTER TABLE debate_turns ADD COLUMN coach_feedback TEXT;',
+            'ALTER TABLE debate_turns ADD COLUMN filler_words_count INTEGER DEFAULT 0;',
+            'ALTER TABLE debate_turns ADD COLUMN confidence_score INTEGER DEFAULT 0;',
+            'ALTER TABLE debate_turns ADD COLUMN speech_pace VARCHAR(100);',
+            'ALTER TABLE debate_turns ADD COLUMN prosody_analysis TEXT;'
+        ]
+
+        for stmt in columns_to_add:
+            try:
+                cursor.execute(stmt)
+                conn.commit()
+            except Exception:
+                conn.rollback()  # Resets the aborted transaction state if column already exists
+
         cursor.close()
         conn.close()
         print("✅ PostgreSQL Database Initialized Successfully")
