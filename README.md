@@ -99,5 +99,5 @@ PowerShell
 cd frontend
 npm install
 npm run dev
-👤 Author & Academic Details
+👤 Author 
 Name: Mayank Lohani
