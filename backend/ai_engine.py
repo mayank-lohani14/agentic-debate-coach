@@ -264,7 +264,10 @@ async def analyze_argument(
 
             # Append the presentation analytics status if audio was processed
             if audio_file:
-                yield f"data: {json.dumps({'type': 'status', 'message': f'Audio Analysis Complete. Pace: {audio_analytics["speech_pace"]} | Confidence: {audio_analytics["confidence_score"]}/100'})}\n\n"
+                pace = audio_analytics.get("speech_pace", "N/A")
+                conf = audio_analytics.get("confidence_score", 0)
+                msg = f"Audio Analysis Complete. Pace: {pace} | Confidence: {conf}/100"
+                yield f"data: {json.dumps({'type': 'status', 'message': msg})}\n\n"
 
             yield f"data: {json.dumps({'type': 'transcript', 'text': target_text})}\n\n"
             yield f"data: {json.dumps({'type': 'status', 'message': 'Generating AI Rebuttal...'})}\n\n"

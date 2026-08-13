@@ -1,0 +1,53 @@
+version: '3.8'
+
+services:
+  # 1. PostgreSQL Database Container
+  db:
+    image: postgres:15
+    container_name: debate_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: Mayank123
+      POSTGRES_DB: debate_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  # 2. FastAPI Backend Container
+  backend:
+    build: 
+      context: ./backend  # Path to the folder with your backend Dockerfile
+    container_name: debate_backend
+    restart: always
+    ports:
+      - "8000:8000"
+    environment:
+      # These match the os.getenv() variables we just added to main.py
+      - DB_HOST=db
+      - DB_USER=postgres
+      - DB_PASSWORD=Mayank123
+      - DB_NAME=debate_db
+      - DB_PORT=5432
+      # Ensure you have a .env file in the root with your API key, or replace this with the actual key string
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY} 
+    depends_on:
+      - db
+
+  # 3. React/Vite Frontend Container
+  frontend:
+    build: 
+      context: ./frontend  # Path to the folder with your frontend Dockerfile
+    container_name: debate_frontend
+    restart: always
+    ports:
+      - "5173:5173"
+    environment:
+      # Tells React where to find the FastAPI backend
+      - VITE_API_URL=http://localhost:8000
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:

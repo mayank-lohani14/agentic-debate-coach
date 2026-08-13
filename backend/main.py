@@ -73,11 +73,13 @@ def create_access_token(data: dict):
 # ---------------------------------------------------------
 # POSTGRESQL DATABASE CONFIGURATION
 # ---------------------------------------------------------
-DB_HOST = "localhost"
-DB_NAME = "debate_db"
-DB_USER = "postgres"
-DB_PASSWORD = "Mayank123"
-DB_PORT = 5432
+import os
+
+DB_HOST = os.getenv("DB_HOST", "localhost")
+DB_NAME = os.getenv("DB_NAME", "debate_db")
+DB_USER = os.getenv("DB_USER", "postgres")
+DB_PASSWORD = os.getenv("DB_PASSWORD", "Mayank123")
+DB_PORT = int(os.getenv("DB_PORT", 5432))
 
 def get_db_connection():
     return psycopg2.connect(
