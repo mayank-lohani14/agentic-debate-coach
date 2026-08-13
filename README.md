@@ -25,7 +25,7 @@ An advanced, full-stack, AI-powered debate coaching and presentation analysis pl
 
 ## 🛠️ Project Structure
 
-Based on your workspace layout:
+Based on mine workspace layout:
 ```text
 Agentic ai debate  coach/
 │
@@ -57,6 +57,7 @@ Agentic ai debate  coach/
 ├── docker-compose.yml        # Multi-container orchestration (DB, API, UI)
 ├── LICENSE                   # Project license
 └── README.md                 # Project documentation
+```
 ⚙️ Setup & Installation Instructions
 Prerequisites
 Docker Desktop installed and running.
