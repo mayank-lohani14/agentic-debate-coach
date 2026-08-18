@@ -4,6 +4,12 @@ An advanced, full-stack, AI-powered debate coaching and presentation analysis pl
 
 ---
 
+## 🎬 Screen Recording
+
+[View the project screen recording](https://drive.google.com/file/d/1SkoFTDHdY6P3mih_pZaUsS6AjhfyslT3/view?usp=sharing)
+
+---
+
 ## 🚀 Tech Stack
 
 * **Frontend**: React, Vite, Recharts, jsPDF, Axios
